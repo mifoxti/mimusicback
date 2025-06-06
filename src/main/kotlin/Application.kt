@@ -39,7 +39,7 @@ fun Application.module() {
     // Запускаем сканирование каждые 60 минут
     CoroutineScope(Dispatchers.IO).launch {
         while (true) {
-            delay(TimeUnit.HOURS.toMillis(1))
+            delay(TimeUnit.SECONDS.toMillis(1))
             musicScanner.scanAndUpdateDatabase()
         }
     }

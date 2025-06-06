@@ -33,7 +33,7 @@ fun Application.configureTrackRouting() {
 
             val cover = DatabaseFactory.dbQuery {
                 Tracks.selectAll().where { Tracks.id eq trackId }
-                    .map { it[Tracks.albumArt] }
+                    .map { it[Tracks.albumArt]?.bytes }
                     .firstOrNull()
             }
 

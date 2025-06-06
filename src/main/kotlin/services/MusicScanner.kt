@@ -6,6 +6,7 @@ import com.mpatric.mp3agic.Mp3File
 import org.jetbrains.exposed.sql.selectAll
 import java.io.File
 import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.transactions.transaction
 import java.security.MessageDigest
 
 class MusicScanner(private val musicDir: File) {
@@ -17,7 +18,9 @@ class MusicScanner(private val musicDir: File) {
                 val fileHash = calculateFileHash(mp3File)
 
                 // Проверяем, есть ли уже такой трек в БД
-                val existingTrack = Tracks.selectAll().where  { Tracks.fileHash eq fileHash }.firstOrNull()
+                val existingTrack = Tracks.selectAll()
+                    .where { Tracks.fileHash eq fileHash }
+                    .firstOrNull()
 
                 if (existingTrack == null) {
                     addNewTrack(mp3File, fileHash)
@@ -25,28 +28,27 @@ class MusicScanner(private val musicDir: File) {
             }
     }
 
-    private fun addNewTrack(file: File, fileHash: String) {
-        val mp3 = try { Mp3File(file) } catch (e: Exception) { return }
+    private suspend fun addNewTrack(file: File, fileHash: String) = DatabaseFactory.dbQuery {
+        val mp3 = try { Mp3File(file) } catch (e: Exception) {
+            // Логируем ошибку, если нужно
+            println("Error parsing MP3 file ${file.name}: ${e.message}")
+            return@dbQuery
+        }
 
         val title = mp3.id3v2Tag?.title ?: file.nameWithoutExtension
         val artist = mp3.id3v2Tag?.artist
         val duration = mp3.lengthInSeconds.toInt()
 
-        var albumArt: ByteArray? = null
-        mp3.id3v2Tag?.albumImage?.let { imageData ->
-            if (!imageData.mimeType.isNullOrEmpty()) {
-                albumArt = imageData.imageData
-            }
-        }
+
 
         Tracks.insert {
-            it[path] = file.absolutePath
-            it[title] = title
-            it[artist] = artist
-            it[duration] = duration
-            it[albumArt] = albumArt
-            it[fileHash] = fileHash
+            it[Tracks.path] = file.absolutePath
+            it[Tracks.title] = title
+            it[Tracks.artist] = artist
+            it[Tracks.duration] = duration
+            it[Tracks.fileHash] = fileHash
         }
+        println("Succesfully added ${file.name}")
     }
 
     private fun calculateFileHash(file: File): String {
