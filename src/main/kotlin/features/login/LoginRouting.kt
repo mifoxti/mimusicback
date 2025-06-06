@@ -53,7 +53,7 @@ fun Application.configureLoginRouting() {
 
                 // Генерация нового токена
                 val token = UUID.randomUUID().toString()
-
+                val userId = user[Users.id]
                 newSuspendedTransaction {
                     // Удаляем старые токены (опционально)
                     UserTokens.deleteWhere { UserTokens.userId eq user[Users.id] }
@@ -64,7 +64,7 @@ fun Application.configureLoginRouting() {
                     }
                 }
 
-                call.respond(LoginResponseRemote(token = token))
+                call.respond(LoginResponseRemote(token = token, id = userId))
             } catch (e: Exception) {
                 application.log.error("Login failed", e)
                 call.respond(HttpStatusCode.InternalServerError, "Login failed")

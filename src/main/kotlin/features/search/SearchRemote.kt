@@ -1,4 +1,11 @@
 package com.example.features.search
 
-class SearchRemote {
-}
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class SearchRemote(
+    val id: Int,
+    val title: String,
+    val artist: String?,
+    val duration: Int?,
+)
