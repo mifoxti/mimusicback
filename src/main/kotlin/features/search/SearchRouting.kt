@@ -4,14 +4,11 @@ import com.example.database.DatabaseFactory
 import com.example.database.Tracks
 import io.ktor.http.*
 import io.ktor.server.application.*
-import io.ktor.server.plugins.*
-import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.lowerCase
 import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
-import java.io.File
 
 
 fun Application.configureSearchRouting() {

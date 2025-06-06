@@ -4,6 +4,7 @@ import com.example.database.DatabaseFactory
 import com.example.features.login.configureLoginRouting
 import com.example.features.register.configureRegisterRouting
 import com.example.features.search.configureSearchRouting
+import com.example.features.thoughts.configureThoughtsRouting
 import com.example.features.tracks.configureTrackRouting
 import com.example.services.MusicScanner
 import io.ktor.server.application.*
@@ -35,6 +36,7 @@ fun Application.module() {
     configureRegisterRouting()
     configureTrackRouting()
     configureSearchRouting()
+    configureThoughtsRouting()
 
     val musicScanner = MusicScanner(musicStorageDir)
 

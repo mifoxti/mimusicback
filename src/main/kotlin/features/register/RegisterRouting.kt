@@ -76,7 +76,7 @@ fun Application.configureRegisterRouting() {
                     }
                 }
 
-                call.respond(RegisterResponseRemote(token = token))
+                call.respond(RegisterResponseRemote(token = token, id = userId))
             } catch (e: Exception) {
                 application.log.error("Registration failed", e)
                 call.respond(HttpStatusCode.InternalServerError, "Registration failed")
