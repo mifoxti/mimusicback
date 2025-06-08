@@ -38,6 +38,7 @@ class MusicScanner(private val musicDir: File) {
         val title = mp3.id3v2Tag?.title ?: file.nameWithoutExtension
         val artist = mp3.id3v2Tag?.artist
         val duration = mp3.lengthInSeconds.toInt()
+        val coverArt = mp3.id3v2Tag?.albumImage
 
 
 
@@ -46,6 +47,7 @@ class MusicScanner(private val musicDir: File) {
             it[Tracks.title] = title
             it[Tracks.artist] = artist
             it[Tracks.duration] = duration
+            it[Tracks.coverArt] = coverArt
             it[Tracks.fileHash] = fileHash
         }
         println("Succesfully added ${file.name}")

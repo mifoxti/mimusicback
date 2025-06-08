@@ -10,6 +10,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.selectAll
 import java.io.File
+import java.util.*
 
 fun Application.configureTrackRouting() {
     routing {
@@ -21,7 +22,9 @@ fun Application.configureTrackRouting() {
                         title = it[Tracks.title],
                         artist = it[Tracks.artist],
                         duration = it[Tracks.duration],
-                        hasCover = it[Tracks.albumArt] != null
+                        cover = it[Tracks.coverArt]?.let { bytes ->
+                            Base64.getEncoder().encodeToString(bytes)
+                        }
                     )
                 }
             }
@@ -33,7 +36,7 @@ fun Application.configureTrackRouting() {
 
             val cover = DatabaseFactory.dbQuery {
                 Tracks.selectAll().where { Tracks.id eq trackId }
-                    .map { it[Tracks.albumArt]?.bytes }
+                    .map { it[Tracks.coverArt] }
                     .firstOrNull()
             }
 

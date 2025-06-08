@@ -8,7 +8,7 @@ object Tracks : Table("track") {
     val artist = varchar("artist", 255).nullable()
     val path = varchar("path", 500).uniqueIndex()
     val duration = integer("duration").nullable()
-    val albumArt = blob("album_art").nullable() // Используем Exposed Blob
+    val coverArt = binary("album_art").nullable()
     val fileHash = varchar("file_hash", 64).uniqueIndex()
 
     override val primaryKey = PrimaryKey(id)

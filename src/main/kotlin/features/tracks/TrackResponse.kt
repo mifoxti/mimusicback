@@ -8,5 +8,5 @@ data class TrackResponse(
     val title: String,
     val artist: String?,
     val duration: Int?,
-    val hasCover: Boolean
+    val cover: String?
 )
