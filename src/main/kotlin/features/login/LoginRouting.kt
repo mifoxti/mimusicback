@@ -45,7 +45,6 @@ fun Application.configureLoginRouting() {
                     return@post
                 }
 
-                // Внимание: здесь должно быть сравнение хешей паролей!
                 if (user[Users.password] != receive.password) {
                     call.respond(HttpStatusCode.Unauthorized, "Invalid login or password")
                     return@post

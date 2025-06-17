@@ -57,11 +57,10 @@ fun Application.configureRegisterRouting() {
                     return@post
                 }
 
-                // В реальном приложении пароль должен хешироваться!
                 val userId = newSuspendedTransaction {
                     Users.insert {
                         it[username] = receive.login
-                        it[password] = receive.password // Внимание: здесь должен быть хеш пароля!
+                        it[password] = receive.password
                         it[email] = receive.email
                         it[thoughts] = null
                     } get Users.id

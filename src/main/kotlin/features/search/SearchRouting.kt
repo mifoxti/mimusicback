@@ -9,6 +9,7 @@ import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.lowerCase
 import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
+import java.util.*
 
 
 fun Application.configureSearchRouting() {
@@ -31,6 +32,9 @@ fun Application.configureSearchRouting() {
                         title = row[Tracks.title],
                         artist = row[Tracks.artist],
                         duration = row[Tracks.duration],
+                        coverArt = row[Tracks.coverArt]?.let { bytes ->
+                            Base64.getEncoder().encodeToString(bytes)
+                        }
                     )
                 }
             }

@@ -8,4 +8,5 @@ data class SearchRemote(
     val title: String,
     val artist: String?,
     val duration: Int?,
+    val coverArt: String?,
 )
