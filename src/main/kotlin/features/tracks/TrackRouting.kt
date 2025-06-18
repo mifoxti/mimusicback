@@ -1,21 +1,20 @@
 package com.example.features.tracks
 
-import com.example.database.DatabaseFactory
 import com.example.database.Tracks
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.plugins.*
-import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.selectAll
+import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import java.io.File
 import java.util.*
 
 fun Application.configureTrackRouting() {
     routing {
         get("/tracks") {
-            val tracks = DatabaseFactory.dbQuery {
+            val tracks = newSuspendedTransaction {
                 Tracks.selectAll().map {
                     TrackResponse(
                         id = it[Tracks.id],
@@ -34,7 +33,7 @@ fun Application.configureTrackRouting() {
         get("/tracks/{id}/cover") {
             val trackId = call.parameters["id"]?.toIntOrNull() ?: throw BadRequestException("Invalid ID")
 
-            val cover = DatabaseFactory.dbQuery {
+            val cover = newSuspendedTransaction {
                 Tracks.selectAll().where { Tracks.id eq trackId }
                     .map { it[Tracks.coverArt] }
                     .firstOrNull()
@@ -50,7 +49,7 @@ fun Application.configureTrackRouting() {
         get("/tracks/{id}/stream") {
             val trackId = call.parameters["id"]?.toIntOrNull() ?: throw BadRequestException("Invalid ID")
 
-            val filePath = DatabaseFactory.dbQuery {
+            val filePath = newSuspendedTransaction {
                 Tracks.selectAll().where { Tracks.id eq trackId }
                     .map { it[Tracks.path] }
                     .firstOrNull()

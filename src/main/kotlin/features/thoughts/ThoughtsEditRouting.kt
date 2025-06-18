@@ -1,13 +1,10 @@
 package com.example.features.thoughts
 
-import com.example.database.DatabaseFactory
-import com.example.database.Tracks
 import com.example.database.Users
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import org.jetbrains.exposed.sql.update
@@ -27,25 +24,30 @@ fun Application.configureThoughtsRouting() {
             }
 
             try {
-                val updated = newSuspendedTransaction {
-                    val userExists = Users.selectAll().where { Users.id eq userId }.count() > 0
-                    if (!userExists) {
-                        return@newSuspendedTransaction false
-                    }
-
-                    Users.update({ Users.id eq userId }) {
-                        it[Users.thoughts] = newThought
-                    } > 0
+                val userExists = newSuspendedTransaction {
+                    Users.selectAll().where { Users.id eq userId }.count() > 0
                 }
 
-                if (updated) {
+                if (!userExists) {
+                    call.respond(HttpStatusCode.NotFound, "User not found")
+                    return@post
+                }
+
+                val updatedRows = newSuspendedTransaction {
+                    Users.update({ Users.id eq userId }) {
+                        it[thoughts] = newThought
+                    }
+                }
+
+                if (updatedRows > 0) {
                     call.respond(HttpStatusCode.OK, mapOf(
                         "status" to "success",
                         "message" to "Thought updated successfully"
                     ))
                 } else {
-                    call.respond(HttpStatusCode.NotFound, "User not found")
+                    call.respond(HttpStatusCode.InternalServerError, "Update failed")
                 }
+
             } catch (e: Exception) {
                 call.respond(HttpStatusCode.InternalServerError, "Error updating thought")
             }

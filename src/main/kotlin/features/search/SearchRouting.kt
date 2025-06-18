@@ -1,6 +1,5 @@
 package com.example.features.search
 
-import com.example.database.DatabaseFactory
 import com.example.database.Tracks
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -9,20 +8,21 @@ import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.lowerCase
 import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
+import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import java.util.*
-
 
 fun Application.configureSearchRouting() {
     routing {
         get("/search") {
             var searchQuery = call.request.queryParameters["q"] ?: ""
             searchQuery = searchQuery.lowercase()
+
             if (searchQuery.isEmpty()) {
                 call.respond(HttpStatusCode.BadRequest, "Query parameter 'q' is required")
                 return@get
             }
 
-            val tracks = DatabaseFactory.dbQuery {
+            val tracks = newSuspendedTransaction {
                 Tracks.selectAll().where {
                     (Tracks.title.lowerCase() like "%$searchQuery%") or
                             (Tracks.artist.lowerCase() like "%$searchQuery%")
