@@ -3,6 +3,7 @@ package com.example
 import com.example.database.DatabaseFactory
 import com.example.features.likes.configureLikeRouting
 import com.example.features.login.configureLoginRouting
+import com.example.features.loved.configureLovedTracksRouting
 import com.example.features.register.configureRegisterRouting
 import com.example.features.search.configureSearchRouting
 import com.example.features.thoughts.configureThoughtsRouting
@@ -38,6 +39,7 @@ fun Application.module() {
     configureTrackRouting()
     configureSearchRouting()
     configureThoughtsRouting()
+    configureLovedTracksRouting()
 
     val musicScanner = MusicScanner(musicStorageDir)
 
