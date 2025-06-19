@@ -52,5 +52,29 @@ fun Application.configureThoughtsRouting() {
                 call.respond(HttpStatusCode.InternalServerError, "Error updating thought")
             }
         }
+
+        get("/users/{id}/thought") {
+            val userId = call.parameters["id"]?.toIntOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "User ID is required")
+                return@get
+            }
+
+            try {
+                val thought = newSuspendedTransaction {
+                    Users
+                        .selectAll().where { Users.id eq userId }
+                        .map { it[Users.thoughts] }
+                        .firstOrNull()
+                }
+
+                if (thought != null) {
+                    call.respond(HttpStatusCode.OK, mapOf("thought" to thought))
+                } else {
+                    call.respond(HttpStatusCode.NotFound, "User not found or no thought")
+                }
+            } catch (e: Exception) {
+                call.respond(HttpStatusCode.InternalServerError, "Error fetching thought")
+            }
+        }
     }
 }
