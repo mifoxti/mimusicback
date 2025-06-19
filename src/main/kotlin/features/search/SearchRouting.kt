@@ -1,6 +1,7 @@
 package com.example.features.search
 
 import com.example.database.Tracks
+import com.example.database.UserTracks
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
@@ -17,24 +18,30 @@ fun Application.configureSearchRouting() {
             var searchQuery = call.request.queryParameters["q"] ?: ""
             searchQuery = searchQuery.lowercase()
 
+            val userId = call.request.queryParameters["userId"]?.toIntOrNull()
+
             if (searchQuery.isEmpty()) {
                 call.respond(HttpStatusCode.BadRequest, "Query parameter 'q' is required")
                 return@get
             }
 
             val tracks = newSuspendedTransaction {
+                val likedTrackIds = if (userId != null) {
+                    UserTracks.selectAll().where { UserTracks.userIduser eq userId }.map { it[UserTracks.trackIdtrack] }.toSet()
+                } else emptySet()
+
                 Tracks.selectAll().where {
                     (Tracks.title.lowerCase() like "%$searchQuery%") or
                             (Tracks.artist.lowerCase() like "%$searchQuery%")
                 }.map { row ->
+                    val trackId = row[Tracks.id]
                     SearchRemote(
-                        id = row[Tracks.id],
+                        id = trackId,
                         title = row[Tracks.title],
                         artist = row[Tracks.artist],
                         duration = row[Tracks.duration],
-                        coverArt = row[Tracks.coverArt]?.let { bytes ->
-                            Base64.getEncoder().encodeToString(bytes)
-                        }
+                        coverArt = row[Tracks.coverArt]?.let { Base64.getEncoder().encodeToString(it) },
+                        isLiked = userId != null && likedTrackIds.contains(trackId)
                     )
                 }
             }
