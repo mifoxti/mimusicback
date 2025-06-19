@@ -3,7 +3,7 @@ package com.example.features.tracks
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class TrackResponse(
+data class TrackRemote(
     val id: Int,
     val title: String,
     val artist: String?,

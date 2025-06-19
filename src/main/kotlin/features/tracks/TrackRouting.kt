@@ -16,7 +16,7 @@ fun Application.configureTrackRouting() {
         get("/tracks") {
             val tracks = newSuspendedTransaction {
                 Tracks.selectAll().map {
-                    TrackResponse(
+                    TrackRemote(
                         id = it[Tracks.id],
                         title = it[Tracks.title],
                         artist = it[Tracks.artist],
