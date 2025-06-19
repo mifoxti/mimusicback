@@ -1,6 +1,7 @@
 package com.example
 
 import com.example.database.DatabaseFactory
+import com.example.features.artist.configureArtistRouting
 import com.example.features.likes.configureLikeRouting
 import com.example.features.login.configureLoginRouting
 import com.example.features.loved.configureLovedTracksRouting
@@ -40,6 +41,7 @@ fun Application.module() {
     configureSearchRouting()
     configureThoughtsRouting()
     configureLovedTracksRouting()
+    configureArtistRouting()
 
     val musicScanner = MusicScanner(musicStorageDir)
 
