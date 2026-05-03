@@ -1,9 +1,9 @@
 package com.example.colisten
 
 import kotlinx.serialization.Serializable
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.util.UUID
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 @Serializable
 data class RoomState(
@@ -23,13 +23,13 @@ data class RoomParticipant(val userId: Int, val send: suspend (String) -> Unit)
  * При рестарте сервера комнаты пропадают (для MVP достаточно).
  */
 object ColistenRoomManager {
-    private val mutex = Mutex()
+    private val lock = ReentrantLock()
     private val rooms = mutableMapOf<String, MutableList<RoomParticipant>>()
     private val roomState = mutableMapOf<String, RoomState>()
 
     fun createRoom(ownerId: Int): String {
         val id = UUID.randomUUID().toString()
-        mutex.withLock {
+        lock.withLock {
             roomState[id] = RoomState(roomId = id, ownerId = ownerId)
             rooms[id] = mutableListOf()
         }
@@ -39,13 +39,13 @@ object ColistenRoomManager {
     fun getState(roomId: String): RoomState? = roomState[roomId]
 
     fun setState(roomId: String, state: RoomState) {
-        mutex.withLock {
+        lock.withLock {
             roomState[roomId] = state
         }
     }
 
     fun joinRoom(roomId: String, userId: Int, send: suspend (String) -> Unit): Boolean {
-        mutex.withLock {
+        lock.withLock {
             val state = roomState[roomId] ?: return false
             val list = rooms.getOrPut(roomId) { mutableListOf() }
             list.add(RoomParticipant(userId, send))
@@ -57,7 +57,7 @@ object ColistenRoomManager {
     }
 
     fun leaveRoom(roomId: String, userId: Int) {
-        mutex.withLock {
+        lock.withLock {
             rooms[roomId]?.removeAll { it.userId == userId }
             val list = rooms[roomId] ?: return
             roomState[roomId] = roomState[roomId]?.copy(
@@ -71,7 +71,7 @@ object ColistenRoomManager {
     }
 
     suspend fun broadcast(roomId: String, message: String) {
-        val list = mutex.withLock { rooms[roomId]?.toList() ?: emptyList() }
+        val list = lock.withLock { rooms[roomId]?.toList() ?: emptyList() }
         for (p in list) {
             try {
                 p.send(message)

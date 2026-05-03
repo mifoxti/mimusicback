@@ -1,15 +1,19 @@
 package com.example.database
 
 import org.jetbrains.exposed.sql.Table
+import org.jetbrains.exposed.sql.javatime.timestampWithTimeZone
 
-object Tracks : Table("track") {
-    val id = integer("idtrack").autoIncrement()
-    val title = varchar("title", 255)
-    val artist = varchar("artist", 255).nullable()
-    val path = varchar("path", 500).uniqueIndex()
-    val duration = integer("duration").nullable()
-    val coverArt = binary("album_art").nullable()
-    val fileHash = varchar("file_hash", 64).uniqueIndex()
+object Tracks : Table("tracks") {
+    val id = long("id").autoIncrement()
+    val uploaderUserId = long("uploader_user_id").references(Users.id)
+    val title = text("title").default("Untitled")
+    val artists = array<String>("artists").nullable()
+    val audioStorageKey = text("audio_storage_key").nullable()
+    val coverStorageKey = text("cover_storage_key").nullable()
+    val hash = text("hash").nullable()
+    val durationMs = integer("duration_ms").nullable()
+    val createdAt = timestampWithTimeZone("created_at").nullable()
+    val updatedAt = timestampWithTimeZone("updated_at").nullable()
 
     override val primaryKey = PrimaryKey(id)
 }

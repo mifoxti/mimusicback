@@ -4,13 +4,18 @@ import com.example.database.Tracks
 import com.mpatric.mp3agic.Mp3File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.jetbrains.exposed.sql.selectAll
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import java.io.File
 import java.security.MessageDigest
+import java.time.OffsetDateTime
 
-class MusicScanner(private val musicDir: File) {
+class MusicScanner(
+    private val musicDir: File,
+    private val bootstrapUploaderUserId: Long,
+) {
 
     suspend fun scanAndUpdateDatabase() {
         val mp3Files = withContext(Dispatchers.IO) {
@@ -23,7 +28,7 @@ class MusicScanner(private val musicDir: File) {
             val fileHash = withContext(Dispatchers.IO) { calculateFileHash(file) }
 
             val exists = newSuspendedTransaction {
-                Tracks.selectAll().where { Tracks.fileHash eq fileHash }.firstOrNull()
+                Tracks.selectAll().where { Tracks.hash eq fileHash }.firstOrNull()
             }
 
             if (exists == null) {
@@ -42,17 +47,21 @@ class MusicScanner(private val musicDir: File) {
 
         val title = mp3.id3v2Tag?.title ?: file.nameWithoutExtension
         val artist = mp3.id3v2Tag?.artist
-        val duration = mp3.lengthInSeconds.toInt()
-        val coverArt = mp3.id3v2Tag?.albumImage
+        val durationSec = mp3.lengthInSeconds.toInt()
+        val artistsList = if (artist.isNullOrBlank()) emptyList() else listOf(artist)
+        val relativePath = file.relativeTo(musicDir).path.replace('\\', '/')
 
         newSuspendedTransaction {
             Tracks.insert {
-                it[path] = file.absolutePath
+                it[Tracks.uploaderUserId] = bootstrapUploaderUserId
                 it[Tracks.title] = title
-                it[Tracks.artist] = artist
-                it[Tracks.duration] = duration
-                it[Tracks.coverArt] = coverArt
-                it[Tracks.fileHash] = fileHash
+                it[Tracks.artists] = artistsList
+                it[Tracks.audioStorageKey] = relativePath
+                it[Tracks.coverStorageKey] = null
+                it[Tracks.hash] = fileHash
+                it[Tracks.durationMs] = durationSec * 1000
+                it[Tracks.createdAt] = OffsetDateTime.now()
+                it[Tracks.updatedAt] = OffsetDateTime.now()
             }
         }
 

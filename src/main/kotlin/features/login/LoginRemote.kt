@@ -12,5 +12,6 @@ data class LoginReceiveRemote(
 data class LoginResponseRemote(
     val token: String,
     val id: Int,
+    val email: String? = null,
+    val nickname: String,
 )
-
