@@ -1,7 +1,10 @@
 package com.example
 
 import com.example.database.DatabaseFactory
+import com.example.colisten.configureColistenRouting
+import com.example.colisten.configureColistenWebSocket
 import com.example.features.artist.configureArtistRouting
+import com.example.features.friends.configureFriendRouting
 import com.example.features.likes.configureLikeRouting
 import com.example.features.login.configureLoginRouting
 import com.example.features.loved.configureLovedTracksRouting
@@ -42,6 +45,9 @@ fun Application.module() {
     configureThoughtsRouting()
     configureLovedTracksRouting()
     configureArtistRouting()
+    configureFriendRouting()
+    configureColistenRouting()
+    configureColistenWebSocket()
 
     val musicScanner = MusicScanner(musicStorageDir)
 
