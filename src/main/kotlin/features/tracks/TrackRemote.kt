@@ -8,5 +8,6 @@ data class TrackRemote(
     val title: String,
     val artist: String?,
     val duration: Int?,
-    val cover: String?
+    val cover: String?,
+    val genres: List<String> = emptyList(),
 )

@@ -1,5 +1,7 @@
 package com.example.services
 
+import com.example.database.Genres
+import com.example.database.TrackGenres
 import com.example.database.Tracks
 import com.mpatric.mp3agic.Mp3File
 import kotlinx.coroutines.Dispatchers
@@ -52,7 +54,7 @@ class MusicScanner(
         val relativePath = file.relativeTo(musicDir).path.replace('\\', '/')
 
         newSuspendedTransaction {
-            Tracks.insert {
+            val trackId = Tracks.insert {
                 it[Tracks.uploaderUserId] = bootstrapUploaderUserId
                 it[Tracks.title] = title
                 it[Tracks.artists] = artistsList
@@ -62,6 +64,15 @@ class MusicScanner(
                 it[Tracks.durationMs] = durationSec * 1000
                 it[Tracks.createdAt] = OffsetDateTime.now()
                 it[Tracks.updatedAt] = OffsetDateTime.now()
+            } get Tracks.id
+            val otherId = Genres.selectAll().where { Genres.slug eq "other" }.singleOrNull()?.get(Genres.id)
+            if (otherId != null) {
+                TrackGenres.insert {
+                    it[TrackGenres.trackId] = trackId
+                    it[TrackGenres.genreId] = otherId
+                    it[TrackGenres.weight] = 1.0
+                    it[TrackGenres.genreSource] = "scanner"
+                }
             }
         }
 

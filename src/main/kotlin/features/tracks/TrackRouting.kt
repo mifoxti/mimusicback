@@ -1,20 +1,30 @@
 package com.example.features.tracks
 
 import com.example.database.Tracks
+import com.example.services.TrackGenreService
+import com.example.utils.audioFileForTrack
 import com.example.utils.coverBase64
+import com.example.utils.currentUserId
 import com.example.utils.primaryArtist
 import com.example.utils.readTrackCoverBytes
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.http.content.*
 import io.ktor.server.plugins.*
+import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
-import com.example.utils.audioFileForTrack
+
+@Serializable
+data class TrackGenresPutReceive(
+    val genreSlugs: List<String>,
+    val normalizeWeights: Boolean = false,
+)
 
 fun Application.configureTrackRouting() {
     routing {
@@ -24,17 +34,58 @@ fun Application.configureTrackRouting() {
                 Tracks.selectAll()
                     .orderBy(Tracks.id, SortOrder.DESC)
                     .limit(limit)
-                    .map {
-                        TrackRemote(
-                            id = it[Tracks.id].toInt(),
-                            title = it[Tracks.title],
-                            artist = it[Tracks.artists].primaryArtist().ifBlank { null },
-                            duration = it[Tracks.durationMs]?.div(1000),
-                            cover = coverBase64(it[Tracks.audioStorageKey], it[Tracks.coverStorageKey]),
-                        )
-                    }
+                    .map { it }
             }
-            call.respond(tracks)
+            val ids = tracks.map { it[Tracks.id] }
+            val genreMap = TrackGenreService.loadGenreSlugsForTracks(ids)
+            val out = tracks.map {
+                TrackRemote(
+                    id = it[Tracks.id].toInt(),
+                    title = it[Tracks.title],
+                    artist = it[Tracks.artists].primaryArtist().ifBlank { null },
+                    duration = it[Tracks.durationMs]?.div(1000),
+                    cover = coverBase64(it[Tracks.audioStorageKey], it[Tracks.coverStorageKey]),
+                    genres = genreMap[it[Tracks.id]].orEmpty(),
+                )
+            }
+            call.respond(out)
+        }
+
+        put("/tracks/{id}/genres") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@put
+            }
+            val trackId = call.parameters["id"]?.toLongOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Invalid track id")
+                return@put
+            }
+            val body = try {
+                call.receive<TrackGenresPutReceive>()
+            } catch (_: Exception) {
+                call.respond(HttpStatusCode.BadRequest, "Invalid JSON")
+                return@put
+            }
+            val owner = newSuspendedTransaction {
+                Tracks.selectAll().where { Tracks.id eq trackId }.singleOrNull()?.let { it[Tracks.uploaderUserId] }
+            }
+            when {
+                owner == null -> {
+                    call.respond(HttpStatusCode.NotFound, "Трек не найден")
+                    return@put
+                }
+                owner != uid -> {
+                    call.respond(HttpStatusCode.Forbidden, "Можно менять жанры только своего трека")
+                    return@put
+                }
+            }
+            TrackGenreService.replaceTrackGenres(
+                trackId = trackId,
+                slugs = body.genreSlugs,
+                source = "uploader",
+                normalizeWeights = body.normalizeWeights,
+            )
+            call.respond(HttpStatusCode.OK)
         }
 
         get("/tracks/{id}/cover") {

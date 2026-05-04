@@ -206,6 +206,18 @@ CREATE TABLE IF NOT EXISTS public.friend_requests
 COMMENT ON TABLE public.friend_requests
     IS 'Таблица связей между пользователями (заявки в друзья)';
 
+CREATE TABLE IF NOT EXISTS public.friendships
+(
+    user_low bigint NOT NULL,
+    user_high bigint NOT NULL,
+    created_at timestamp with time zone,
+    PRIMARY KEY (user_low, user_high),
+    CONSTRAINT friendships_order_chk CHECK (user_low < user_high)
+);
+
+COMMENT ON TABLE public.friendships
+    IS 'Принятая дружба: одна строка на пару (user_low < user_high)';
+
 CREATE TABLE IF NOT EXISTS public.track_likes
 (
     user_id bigint NOT NULL,
@@ -261,6 +273,116 @@ CREATE TABLE IF NOT EXISTS public.playlist_tracks
     "position" integer NOT NULL,
     PRIMARY KEY (playlist_id, "position")
 );
+
+-- Жанры (справочник; slug совпадает с клиентом studioGenreIds)
+CREATE TABLE IF NOT EXISTS public.genres
+(
+    id bigserial NOT NULL,
+    slug text NOT NULL,
+    display_name text NOT NULL,
+    parent_genre_id bigint,
+    sort_order integer NOT NULL DEFAULT 0,
+    created_at timestamp with time zone,
+    PRIMARY KEY (id),
+    CONSTRAINT genres_slug_unique UNIQUE (slug),
+    CONSTRAINT genres_parent_fk FOREIGN KEY (parent_genre_id)
+        REFERENCES public.genres (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE SET NULL
+);
+
+COMMENT ON TABLE public.genres
+    IS 'Справочник жанров для тегирования и рекомендаций';
+
+-- Теги жанров у трека (веса независимы, по умолчанию 1.0)
+CREATE TABLE IF NOT EXISTS public.track_genres
+(
+    track_id bigint NOT NULL,
+    genre_id bigint NOT NULL,
+    weight double precision NOT NULL DEFAULT 1.0,
+    source text NOT NULL DEFAULT 'uploader',
+    PRIMARY KEY (track_id, genre_id),
+    CONSTRAINT track_genres_track_fk FOREIGN KEY (track_id)
+        REFERENCES public.tracks (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE,
+    CONSTRAINT track_genres_genre_fk FOREIGN KEY (genre_id)
+        REFERENCES public.genres (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE,
+    CONSTRAINT track_genres_weight_chk CHECK (weight >= 0::double precision AND weight <= 100::double precision)
+);
+
+COMMENT ON TABLE public.track_genres
+    IS 'Жанры трека с весами (рекомендации, фильтры)';
+
+CREATE TABLE IF NOT EXISTS public.album_genres
+(
+    album_id bigint NOT NULL,
+    genre_id bigint NOT NULL,
+    weight double precision NOT NULL DEFAULT 1.0,
+    source text NOT NULL DEFAULT 'owner',
+    PRIMARY KEY (album_id, genre_id),
+    CONSTRAINT album_genres_album_fk FOREIGN KEY (album_id)
+        REFERENCES public.albums (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE,
+    CONSTRAINT album_genres_genre_fk FOREIGN KEY (genre_id)
+        REFERENCES public.genres (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE,
+    CONSTRAINT album_genres_weight_chk CHECK (weight >= 0::double precision AND weight <= 100::double precision)
+);
+
+COMMENT ON TABLE public.album_genres
+    IS 'Жанры альбома (метаданные подборок)';
+
+-- Явные предпочтения пользователя по жанрам (влияют на GET /recommendations/tracks)
+CREATE TABLE IF NOT EXISTS public.user_genre_preferences
+(
+    user_id bigint NOT NULL,
+    genre_id bigint NOT NULL,
+    weight double precision NOT NULL DEFAULT 1.0,
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, genre_id),
+    CONSTRAINT user_genre_pref_user_fk FOREIGN KEY (user_id)
+        REFERENCES public.users (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE,
+    CONSTRAINT user_genre_pref_genre_fk FOREIGN KEY (genre_id)
+        REFERENCES public.genres (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE,
+    CONSTRAINT user_genre_pref_weight_chk CHECK (weight >= 0::double precision AND weight <= 100::double precision)
+);
+
+COMMENT ON TABLE public.user_genre_preferences
+    IS 'Пользовательские веса жанров для персонализации';
+
+-- Учёт показов и реакций на рекомендации (полиморфный target без FK на target_id)
+CREATE TABLE IF NOT EXISTS public.recommendation_events
+(
+    id bigserial NOT NULL,
+    user_id bigint NOT NULL,
+    surface text NOT NULL,
+    target_type text NOT NULL,
+    target_id bigint NOT NULL,
+    interaction text NOT NULL,
+    score_present double precision,
+    meta text,
+    created_at timestamp with time zone NOT NULL DEFAULT now(),
+    PRIMARY KEY (id),
+    CONSTRAINT recommendation_events_user_fk FOREIGN KEY (user_id)
+        REFERENCES public.users (id) MATCH SIMPLE
+        ON UPDATE NO ACTION
+        ON DELETE CASCADE
+);
+
+COMMENT ON TABLE public.recommendation_events
+    IS 'События рекомендаций: impression, click, dismiss, play_start';
+
+CREATE INDEX IF NOT EXISTS idx_recommendation_events_user_created
+    ON public.recommendation_events (user_id, created_at DESC);
 
 ALTER TABLE IF EXISTS public.tracks
     ADD CONSTRAINT track_uploader_user_id_constraint FOREIGN KEY (uploader_user_id)
@@ -414,6 +536,22 @@ ALTER TABLE IF EXISTS public.friend_requests
     NOT VALID;
 
 
+ALTER TABLE IF EXISTS public.friendships
+    ADD CONSTRAINT friendships_user_low_fk FOREIGN KEY (user_low)
+    REFERENCES public.users (id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE CASCADE
+    NOT VALID;
+
+
+ALTER TABLE IF EXISTS public.friendships
+    ADD CONSTRAINT friendships_user_high_fk FOREIGN KEY (user_high)
+    REFERENCES public.users (id) MATCH SIMPLE
+    ON UPDATE NO ACTION
+    ON DELETE CASCADE
+    NOT VALID;
+
+
 ALTER TABLE IF EXISTS public.track_likes
     ADD CONSTRAINT track_likes_user_id_constraint FOREIGN KEY (user_id)
     REFERENCES public.users (id) MATCH SIMPLE
@@ -516,5 +654,31 @@ ALTER TABLE IF EXISTS public.playlist_tracks
     ON UPDATE NO ACTION
     ON DELETE NO ACTION
     NOT VALID;
+
+-- Стартовый каталог жанров (совпадает с Flutter studioGenreIds)
+INSERT INTO public.genres (slug, display_name, sort_order, created_at)
+VALUES
+    ('pop', 'Pop', 10, now()),
+    ('rock', 'Rock', 20, now()),
+    ('electronic', 'Electronic', 30, now()),
+    ('hip_hop', 'Hip-Hop', 40, now()),
+    ('rb', 'R&B', 50, now()),
+    ('jazz', 'Jazz', 60, now()),
+    ('classical', 'Classical', 70, now()),
+    ('ambient', 'Ambient', 80, now()),
+    ('lo_fi', 'Lo-Fi', 90, now()),
+    ('metal', 'Metal', 100, now()),
+    ('punk', 'Punk', 110, now()),
+    ('indie', 'Indie', 120, now()),
+    ('folk', 'Folk', 130, now()),
+    ('country', 'Country', 140, now()),
+    ('reggae', 'Reggae', 150, now()),
+    ('drum_bass', 'Drum & Bass', 160, now()),
+    ('house', 'House', 170, now()),
+    ('techno', 'Techno', 180, now()),
+    ('trance', 'Trance', 190, now()),
+    ('dubstep', 'Dubstep', 200, now()),
+    ('other', 'Other', 900, now())
+ON CONFLICT (slug) DO NOTHING;
 
 COMMIT;

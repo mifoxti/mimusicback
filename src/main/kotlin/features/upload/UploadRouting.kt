@@ -7,6 +7,7 @@ import com.example.database.Albums
 import com.example.database.Playlists
 import com.example.database.Tracks
 import com.example.database.Users
+import com.example.services.TrackGenreService
 import com.example.utils.currentUserId
 import com.example.utils.looksLikeMp3Prefix
 import com.example.utils.readAtMostBytesStrict
@@ -27,6 +28,21 @@ import java.security.MessageDigest
 import java.time.OffsetDateTime
 import java.util.UUID
 import com.example.utils.SafeImage
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
+
+private fun parseGenreSlugs(raw: String?): List<String> {
+    if (raw.isNullOrBlank()) return emptyList()
+    val t = raw.trim()
+    return try {
+        Json.decodeFromString(ListSerializer(String.serializer()), t)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    } catch (_: Exception) {
+        t.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+    }
+}
 
 private val allowedImageContentTypes = setOf(
     ContentType.Image.JPEG,
@@ -90,6 +106,8 @@ fun Application.configureUploadRouting() {
             var fileBytes: ByteArray? = null
             var declaredContentType: ContentType? = null
             var titleOverride: String? = null
+            var genreSlugsRaw: String? = null
+            var genreNormalizeWeights = false
             var uploadTooLargeMessage: String? = null
 
             multipart.forEachPart { part ->
@@ -109,8 +127,11 @@ fun Application.configureUploadRouting() {
                         }
                     }
                     is PartData.FormItem -> {
-                        if (part.name == "title") {
-                            titleOverride = part.value.takeIf { it.isNotBlank() }
+                        when (part.name) {
+                            "title" -> titleOverride = part.value.takeIf { it.isNotBlank() }
+                            "genreSlugs" -> genreSlugsRaw = part.value
+                            "genreNormalizeWeights" ->
+                                genreNormalizeWeights = part.value.equals("true", ignoreCase = true)
                         }
                     }
                     else -> Unit
@@ -177,6 +198,13 @@ fun Application.configureUploadRouting() {
                     it[Tracks.updatedAt] = OffsetDateTime.now()
                 } get Tracks.id
             }
+
+            TrackGenreService.replaceTrackGenres(
+                trackId = trackId,
+                slugs = parseGenreSlugs(genreSlugsRaw),
+                source = "uploader",
+                normalizeWeights = genreNormalizeWeights,
+            )
 
             call.respond(
                 UploadTrackResponseRemote(
