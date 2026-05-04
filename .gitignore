@@ -35,6 +35,8 @@ out/
 ### VS Code ###
 .vscode/
 
+.env
+
 ### User uploads (layout kept via .gitkeep; do not commit binaries) ###
 music_storage/*
 !music_storage/.gitkeep

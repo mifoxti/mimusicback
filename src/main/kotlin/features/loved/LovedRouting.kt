@@ -1,32 +1,32 @@
 package com.example.features.loved
 
+import com.example.database.TrackLikes
 import com.example.database.Tracks
-import com.example.database.UserTracks
+import com.example.utils.coverBase64
+import com.example.utils.primaryArtist
 import io.ktor.server.application.*
 import io.ktor.server.plugins.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
-import java.util.*
 
 fun Application.configureLovedTracksRouting() {
     routing {
         get("/users/{id}/loved") {
-            val userId = call.parameters["id"]?.toIntOrNull()
+            val userId = call.parameters["id"]?.toLongOrNull()
                 ?: throw BadRequestException("Invalid user ID")
 
             val lovedTracks = newSuspendedTransaction {
-                (UserTracks innerJoin Tracks).selectAll().where {
-                    UserTracks.userIduser eq userId
+                (TrackLikes innerJoin Tracks).selectAll().where {
+                    TrackLikes.userId eq userId
                 }.map {
                     LovedTrackRemote(
-                        id = it[Tracks.id],
+                        id = it[Tracks.id].toInt(),
                         title = it[Tracks.title],
-                        artist = it[Tracks.artist],
-                        coverArt = it[Tracks.coverArt]?.let { bytes ->
-                            Base64.getEncoder().encodeToString(bytes)
-                        }
+                        artist = it[Tracks.artists].primaryArtist().ifBlank { null },
+                        coverArt = coverBase64(it[Tracks.audioStorageKey], it[Tracks.coverStorageKey]),
                     )
                 }
             }

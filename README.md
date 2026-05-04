@@ -42,3 +42,9 @@ If the server starts successfully, you'll see the following output:
 2024-12-04 14:32:45.682 [main] INFO  Application - Responding at http://0.0.0.0:8080
 ```
 
+## MiMusic local dev (short)
+
+- **PostgreSQL:** apply `db/schema/pgsql_starter_code.sql` to your database (see `.env.example` for `DB_*` variables). Optional file **`./.env`** in this directory is read on startup when OS env vars are unset.
+- **Run (Windows):** `.\run-dev.ps1 run` or set `JAVA_HOME` to JDK 11+ and run `.\gradlew.bat run`. Health check: `GET http://127.0.0.1:8080/`.
+- **Invite / auth:** `REQUIRE_INVITE_KEY`, `BETA_INVITE_CODES` in env; dev seed invite **`TESTK-EYDEV-BUILD`** is inserted at startup (see `DatabaseBootstrap.kt`). System users `__scanner_uploader__` and `__invite_key_holder__` are expected rows in `users`.
+- **Product docs** (roadmap, Android USB + Postgres, API alignment) live in the parent folder **`md/`** when you clone the full `MiMusic` workspace layout.

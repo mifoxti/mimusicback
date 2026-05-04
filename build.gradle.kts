@@ -5,6 +5,12 @@ plugins {
     alias(libs.plugins.kotlin.plugin.serialization)
 }
 
+kotlin {
+    // Corretto/JDK at D:\AmazonCoretto is 20 — toolchain(17) fails unless JDK 17 is installed.
+    // With JDK 17+ installed, you can set this back to 17.
+    jvmToolchain(20)
+}
+
 group = "com.example"
 version = "0.0.1"
 
@@ -34,6 +40,7 @@ dependencies {
     // Exposed
     implementation(libs.exposed.core)
     implementation(libs.exposed.jdbc)
+    implementation("org.jetbrains.exposed:exposed-java-time:0.60.0")
 
     // Database
     implementation("org.postgresql:postgresql:42.7.3")

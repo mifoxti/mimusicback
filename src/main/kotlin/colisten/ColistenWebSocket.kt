@@ -1,15 +1,18 @@
 package com.example.colisten
 
-import com.example.database.Friends
-import com.example.database.UserTokens
+import com.example.database.AuthSessions
+import com.example.database.FriendRequests
+import com.example.utils.sha256Hex
 import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 
 fun Application.configureColistenWebSocket() {
     install(WebSockets)
@@ -25,8 +28,10 @@ fun Application.configureColistenWebSocket() {
                 return@webSocket
             }
             val userId = newSuspendedTransaction {
-                UserTokens.selectAll().where { UserTokens.token eq token }
-                    .map { it[UserTokens.userId] }.firstOrNull()
+                AuthSessions.selectAll().where { AuthSessions.tokenHash eq sha256Hex(token) }
+                    .map { it[AuthSessions.userId] }
+                    .firstOrNull()
+                    ?.toInt()
             }
             if (userId == null) {
                 close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "Invalid token"))
@@ -37,10 +42,13 @@ fun Application.configureColistenWebSocket() {
                 close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "Room not found"))
                 return@webSocket
             }
-            // Только друзья владельца (или сам владелец) могут зайти
+            val uid = userId.toLong()
+            val ownerId = state.ownerId.toLong()
             val isFriendOrOwner = state.ownerId == userId || newSuspendedTransaction {
-                Friends.selectAll().where {
-                    (Friends.userId eq state.ownerId) and (Friends.friendId eq userId)
+                FriendRequests.selectAll().where {
+                    (FriendRequests.status eq "accepted") and
+                        (((FriendRequests.fromUserId eq ownerId) and (FriendRequests.toUserId eq uid)) or
+                            ((FriendRequests.fromUserId eq uid) and (FriendRequests.toUserId eq ownerId)))
                 }.any()
             }
             if (!isFriendOrOwner) {

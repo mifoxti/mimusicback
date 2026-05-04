@@ -1,6 +1,6 @@
 package com.example.features.friends
 
-import com.example.database.Friends
+import com.example.database.FriendRequests
 import com.example.database.Users
 import com.example.utils.currentUserId
 import io.ktor.http.*
@@ -8,49 +8,59 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
-import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import java.time.OffsetDateTime
 
 fun Application.configureFriendRouting() {
     routing {
         get("/friends") {
-            val userId = call.currentUserId()
-            if (userId == null) {
+            val userId = call.currentUserId() ?: run {
                 call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
                 return@get
             }
+            val uid = userId.toLong()
             val list = newSuspendedTransaction {
-                Friends.innerJoin(Users) { Friends.friendId eq Users.id }
-                    .selectAll()
-                    .where { Friends.userId eq userId }
-                    .map {
-                        FriendRemote(
-                            id = it[Users.id],
-                            username = it[Users.username]
-                        )
-                    }
+                val rows = FriendRequests.selectAll().where {
+                    (FriendRequests.status eq "accepted") and
+                        ((FriendRequests.fromUserId eq uid) or (FriendRequests.toUserId eq uid))
+                }.toList()
+                val otherIds = rows.map { fr ->
+                    if (fr[FriendRequests.fromUserId] == uid) fr[FriendRequests.toUserId] else fr[FriendRequests.fromUserId]
+                }.distinct()
+                if (otherIds.isEmpty()) return@newSuspendedTransaction emptyList()
+                val names = Users.selectAll().where { Users.id inList otherIds }
+                    .associate { it[Users.id] to it[Users.nickname] }
+                otherIds.map { oid ->
+                    FriendRemote(
+                        id = oid.toInt(),
+                        username = names[oid].orEmpty(),
+                    )
+                }
             }
             call.respond(list)
         }
 
         post("/friends") {
-            val userId = call.currentUserId()
-            if (userId == null) {
+            val userId = call.currentUserId() ?: run {
                 call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
                 return@post
             }
+            val uid = userId.toLong()
             val body = try {
                 call.receive<AddFriendRequest>()
             } catch (e: Exception) {
                 call.respond(HttpStatusCode.BadRequest, "Invalid body: expected { friendId: Int }")
                 return@post
             }
-            val friendId = body.friendId
-            if (friendId == userId) {
+            val friendId = body.friendId.toLong()
+            if (friendId == uid) {
                 call.respond(HttpStatusCode.BadRequest, "Cannot add yourself as friend")
                 return@post
             }
@@ -61,39 +71,45 @@ fun Application.configureFriendRouting() {
                 call.respond(HttpStatusCode.NotFound, "User not found")
                 return@post
             }
+            val now = OffsetDateTime.now()
             newSuspendedTransaction {
-                Friends.insert {
-                    it[Friends.userId] = userId
-                    it[Friends.friendId] = friendId
+                FriendRequests.insert {
+                    it[FriendRequests.fromUserId] = uid
+                    it[FriendRequests.toUserId] = friendId
+                    it[FriendRequests.status] = "accepted"
+                    it[FriendRequests.createdAt] = now
+                    it[FriendRequests.respondedAt] = now
                 }
-                // Двусторонняя дружба: второй пользователь тоже «в друзьях» у первого
                 try {
-                    Friends.insert {
-                        it[Friends.userId] = friendId
-                        it[Friends.friendId] = userId
+                    FriendRequests.insert {
+                        it[FriendRequests.fromUserId] = friendId
+                        it[FriendRequests.toUserId] = uid
+                        it[FriendRequests.status] = "accepted"
+                        it[FriendRequests.createdAt] = now
+                        it[FriendRequests.respondedAt] = now
                     }
-                } catch (_: Exception) { /* уже есть */ }
+                } catch (_: Exception) { /* уже есть симметричная строка */ }
             }
             call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
         }
 
         delete("/friends/{friendId}") {
-            val userId = call.currentUserId()
-            if (userId == null) {
+            val userId = call.currentUserId() ?: run {
                 call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
                 return@delete
             }
-            val friendId = call.parameters["friendId"]?.toIntOrNull()
+            val uid = userId.toLong()
+            val friendId = call.parameters["friendId"]?.toLongOrNull()
                 ?: run {
                     call.respond(HttpStatusCode.BadRequest, "Invalid friendId")
                     return@delete
                 }
             newSuspendedTransaction {
-                Friends.deleteWhere {
-                    (Friends.userId eq userId) and (Friends.friendId eq friendId)
+                FriendRequests.deleteWhere {
+                    (FriendRequests.fromUserId eq uid) and (FriendRequests.toUserId eq friendId) and (FriendRequests.status eq "accepted")
                 }
-                Friends.deleteWhere {
-                    (Friends.userId eq friendId) and (Friends.friendId eq userId)
+                FriendRequests.deleteWhere {
+                    (FriendRequests.fromUserId eq friendId) and (FriendRequests.toUserId eq uid) and (FriendRequests.status eq "accepted")
                 }
             }
             call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))

@@ -3,16 +3,15 @@ package com.example.database
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.javatime.timestampWithTimeZone
 
-object Users : Table("users") {
+object Thoughts : Table("thoughts") {
     val id = long("id").autoIncrement()
-    val email = text("email").nullable()
-    val nickname = text("nickname")
-    val passwordHash = text("password_hash")
-    val avatarStorageKey = text("avatar_storage_key").nullable()
-    val bio = text("bio").nullable()
+    val authorUserId = long("author_user_id").references(Users.id)
+    val bodyText = text("body_text").nullable()
+    val attachmentType = integer("attachment_type").nullable()
+    val attachmentTrackId = long("attachment_track_id").nullable()
+    val attachmentPlaylistId = long("attachment_playlist_id").nullable()
     val createdAt = timestampWithTimeZone("created_at").nullable()
     val updatedAt = timestampWithTimeZone("updated_at").nullable()
-    val isAdmin = bool("is_admin").nullable()
 
     override val primaryKey = PrimaryKey(id)
 }

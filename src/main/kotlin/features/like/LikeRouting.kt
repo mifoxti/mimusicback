@@ -1,6 +1,6 @@
 package com.example.features.likes
 
-import com.example.database.UserTracks
+import com.example.database.TrackLikes
 import com.example.features.like.ToggleLikeRequest
 import com.example.features.like.ToggleLikeResponse
 import io.ktor.http.*
@@ -8,16 +8,18 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.deleteWhere
+import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
-
 
 fun Application.configureLikeRouting() {
     routing {
         post("/tracks/{trackId}/like") {
             println("Получен запрос")
-            val trackId = call.parameters["trackId"]?.toIntOrNull()
+            val trackId = call.parameters["trackId"]?.toLongOrNull()
                 ?: return@post call.respond(HttpStatusCode.BadRequest, "Invalid track ID")
 
             val request = try {
@@ -28,21 +30,20 @@ fun Application.configureLikeRouting() {
 
             try {
                 val result = newSuspendedTransaction {
-                    val alreadyLiked = UserTracks.selectAll().where {
-                        (UserTracks.userIduser eq request.userId) and
-                                (UserTracks.trackIdtrack eq trackId)
+                    val uid = request.userId.toLong()
+                    val alreadyLiked = TrackLikes.selectAll().where {
+                        (TrackLikes.userId eq uid) and (TrackLikes.trackId eq trackId)
                     }.any()
 
                     if (alreadyLiked) {
-                        UserTracks.deleteWhere {
-                            (UserTracks.userIduser eq request.userId) and
-                                    (UserTracks.trackIdtrack eq trackId)
+                        TrackLikes.deleteWhere {
+                            (TrackLikes.userId eq uid) and (TrackLikes.trackId eq trackId)
                         }
                         ToggleLikeResponse(false)
                     } else {
-                        UserTracks.insert {
-                            it[userIduser] = request.userId
-                            it[trackIdtrack] = trackId
+                        TrackLikes.insert {
+                            it[TrackLikes.userId] = uid
+                            it[TrackLikes.trackId] = trackId
                         }
                         ToggleLikeResponse(true)
                     }
@@ -56,15 +57,15 @@ fun Application.configureLikeRouting() {
         }
 
         get("/tracks/{trackId}/like") {
-            val trackId = call.parameters["trackId"]?.toIntOrNull()
+            val trackId = call.parameters["trackId"]?.toLongOrNull()
                 ?: return@get call.respond(HttpStatusCode.BadRequest, "Invalid track ID")
 
-            val userId = call.request.queryParameters["userId"]?.toIntOrNull()
+            val userId = call.request.queryParameters["userId"]?.toLongOrNull()
                 ?: return@get call.respond(HttpStatusCode.BadRequest, "Missing userId")
 
             val isLiked = newSuspendedTransaction {
-                UserTracks.selectAll().where {
-                    (UserTracks.userIduser eq userId) and (UserTracks.trackIdtrack eq trackId)
+                TrackLikes.selectAll().where {
+                    (TrackLikes.userId eq userId) and (TrackLikes.trackId eq trackId)
                 }.any()
             }
 

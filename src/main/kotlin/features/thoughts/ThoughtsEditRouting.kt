@@ -1,19 +1,22 @@
 package com.example.features.thoughts
 
+import com.example.database.Thoughts
 import com.example.database.Users
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
-import org.jetbrains.exposed.sql.update
-
+import org.jetbrains.exposed.sql.SortOrder
+import java.time.OffsetDateTime
 
 fun Application.configureThoughtsRouting() {
     routing {
         post("/users/{id}/thought") {
-            val userId = call.parameters["id"]?.toIntOrNull() ?: run {
+            val userId = call.parameters["id"]?.toLongOrNull() ?: run {
                 call.respond(HttpStatusCode.BadRequest, "User ID is required")
                 return@post
             }
@@ -33,37 +36,42 @@ fun Application.configureThoughtsRouting() {
                     return@post
                 }
 
-                val updatedRows = newSuspendedTransaction {
-                    Users.update({ Users.id eq userId }) {
-                        it[thoughts] = newThought
+                newSuspendedTransaction {
+                    Thoughts.insert {
+                        it[Thoughts.authorUserId] = userId
+                        it[Thoughts.bodyText] = newThought
+                        it[Thoughts.attachmentType] = null
+                        it[Thoughts.attachmentTrackId] = null
+                        it[Thoughts.attachmentPlaylistId] = null
+                        it[Thoughts.createdAt] = OffsetDateTime.now()
+                        it[Thoughts.updatedAt] = OffsetDateTime.now()
                     }
                 }
 
-                if (updatedRows > 0) {
-                    call.respond(HttpStatusCode.OK, mapOf(
+                call.respond(
+                    HttpStatusCode.OK,
+                    mapOf(
                         "status" to "success",
-                        "message" to "Thought updated successfully"
-                    ))
-                } else {
-                    call.respond(HttpStatusCode.InternalServerError, "Update failed")
-                }
-
+                        "message" to "Thought updated successfully",
+                    ),
+                )
             } catch (e: Exception) {
                 call.respond(HttpStatusCode.InternalServerError, "Error updating thought")
             }
         }
 
         get("/users/{id}/thought") {
-            val userId = call.parameters["id"]?.toIntOrNull() ?: run {
+            val userId = call.parameters["id"]?.toLongOrNull() ?: run {
                 call.respond(HttpStatusCode.BadRequest, "User ID is required")
                 return@get
             }
 
             try {
                 val thought = newSuspendedTransaction {
-                    Users
-                        .selectAll().where { Users.id eq userId }
-                        .map { it[Users.thoughts] }
+                    Thoughts.selectAll().where { Thoughts.authorUserId eq userId }
+                        .orderBy(Thoughts.id, SortOrder.DESC)
+                        .limit(1)
+                        .map { it[Thoughts.bodyText] }
                         .firstOrNull()
                 }
 
