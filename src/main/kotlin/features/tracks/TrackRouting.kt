@@ -70,7 +70,7 @@ fun Application.configureTrackRouting() {
             if (audioKey != null) {
                 val file = audioFileForTrack(audioKey)
                 if (file != null && file.exists()) {
-                    call.respond(LocalFileContent(file, ContentType.Audio.MPEG))
+                    call.respondTrackAudioWithOptionalRange(file)
                 } else {
                     call.respond(HttpStatusCode.NotFound)
                 }
