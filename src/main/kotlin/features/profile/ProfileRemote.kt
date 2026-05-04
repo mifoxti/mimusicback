@@ -8,6 +8,8 @@ data class MeResponseRemote(
     val email: String? = null,
     val nickname: String,
     val bio: String? = null,
+    /** Относительный путь в `FILE_STORAGE_ROOT`, например `avatars/42.png`. */
+    val avatarStorageKey: String? = null,
 )
 
 @Serializable

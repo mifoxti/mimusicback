@@ -1,10 +1,12 @@
 package com.example.features.profile
 
+import com.example.config.fileStorageRoot
 import com.example.database.Users
 import com.example.utils.currentUserId
 import com.example.utils.isValidEmail
 import io.ktor.http.*
 import io.ktor.server.application.*
+import io.ktor.server.http.content.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
@@ -13,6 +15,7 @@ import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import org.jetbrains.exposed.sql.update
+import java.io.File
 import java.time.OffsetDateTime
 
 private sealed class ProfileUpdateResult {
@@ -40,8 +43,29 @@ fun Application.configureProfileRouting() {
                     email = me[Users.email],
                     nickname = me[Users.nickname],
                     bio = me[Users.bio],
+                    avatarStorageKey = me[Users.avatarStorageKey],
                 ),
             )
+        }
+
+        get("/me/avatar") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@get
+            }
+            val key = newSuspendedTransaction {
+                Users.selectAll().where { Users.id eq uid }.singleOrNull()?.let { it[Users.avatarStorageKey] }
+            }
+            if (key.isNullOrBlank()) {
+                call.respond(HttpStatusCode.NotFound)
+                return@get
+            }
+            val file = File(fileStorageRoot(), key)
+            if (!file.isFile) {
+                call.respond(HttpStatusCode.NotFound)
+                return@get
+            }
+            call.respond(LocalFileContent(file, ContentType.Image.PNG))
         }
 
         put("/me") {
@@ -112,6 +136,7 @@ fun Application.configureProfileRouting() {
                             email = me[Users.email],
                             nickname = me[Users.nickname],
                             bio = me[Users.bio],
+                            avatarStorageKey = me[Users.avatarStorageKey],
                         ),
                     )
                 }

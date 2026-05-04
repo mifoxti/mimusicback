@@ -17,6 +17,8 @@ import com.example.features.register.configureRegisterRouting
 import com.example.features.search.configureSearchRouting
 import com.example.features.thoughts.configureThoughtsRouting
 import com.example.features.tracks.configureTrackRouting
+import com.example.features.media.configureFileServingRouting
+import com.example.features.upload.configureUploadRouting
 import com.example.services.MusicScanner
 import io.ktor.server.application.*
 import io.ktor.server.cio.*
@@ -47,7 +49,9 @@ fun Application.module() {
     configureLoginRouting()
     configureRegisterRouting()
     configureProfileRouting()
+    configureUploadRouting()
     configureTrackRouting()
+    configureFileServingRouting()
     configureSearchRouting()
     configureThoughtsRouting()
     configureLovedTracksRouting()
