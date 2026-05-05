@@ -16,4 +16,22 @@ data class MeResponseRemote(
 data class MePatchReceiveRemote(
     val nickname: String? = null,
     val email: String? = null,
+    val bio: String? = null,
+)
+
+@Serializable
+data class MePasswordChangeReceiveRemote(
+    val currentPassword: String,
+    val newPassword: String,
+)
+
+@Serializable
+data class MeInviteKeyReceiveRemote(
+    /** Если null или пусто — сервер сгенерирует новый ключ в формате `AAAAA-AAAAA-AAAAA`. */
+    val keyCode: String? = null,
+)
+
+@Serializable
+data class MeInviteKeyResponseRemote(
+    val keyCode: String,
 )

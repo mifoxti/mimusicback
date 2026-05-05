@@ -1,7 +1,9 @@
 package com.example.features.register
 
+import com.example.config.fileStorageRoot
 import com.example.database.AuthSessions
 import com.example.database.Users
+import com.example.utils.DefaultIdentityAvatar
 import com.example.utils.isInviteCodeAccepted
 import com.example.utils.isValidEmail
 import com.example.utils.sha256Hex
@@ -10,9 +12,12 @@ import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
+import org.jetbrains.exposed.sql.update
+import java.io.File
 import java.time.OffsetDateTime
 import java.util.*
 
@@ -85,6 +90,21 @@ fun Application.configureRegisterRouting() {
                         it[Users.updatedAt] = OffsetDateTime.now()
                         it[Users.isAdmin] = false
                     } get Users.id
+                }
+
+                DefaultIdentityAvatar.bytes()?.let { png ->
+                    if (png.isNotEmpty()) {
+                        val relativeKey = "avatars/$userId.png"
+                        val dest = File(fileStorageRoot(), relativeKey)
+                        dest.parentFile?.mkdirs()
+                        dest.writeBytes(png)
+                        newSuspendedTransaction {
+                            Users.update({ Users.id eq userId }) {
+                                it[Users.avatarStorageKey] = relativeKey
+                                it[Users.updatedAt] = OffsetDateTime.now()
+                            }
+                        }
+                    }
                 }
 
                 val token = UUID.randomUUID().toString()
