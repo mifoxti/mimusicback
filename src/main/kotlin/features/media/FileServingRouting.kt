@@ -4,6 +4,7 @@ import com.example.config.fileStorageRoot
 import com.example.database.Albums
 import com.example.database.Playlists
 import com.example.database.Users
+import com.example.utils.DefaultIdentityAvatar
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.http.content.*
@@ -66,16 +67,18 @@ fun Application.configureFileServingRouting() {
             val key = newSuspendedTransaction {
                 Users.selectAll().where { Users.id eq id }.singleOrNull()?.let { it[Users.avatarStorageKey] }
             }
-            if (key.isNullOrBlank()) {
-                call.respond(HttpStatusCode.NotFound)
+            val root = fileStorageRoot()
+            val file = if (!key.isNullOrBlank()) File(root, key).takeIf { it.isFile } else null
+            if (file != null) {
+                call.respond(LocalFileContent(file, ContentType.Image.PNG))
                 return@get
             }
-            val file = File(fileStorageRoot(), key)
-            if (!file.isFile) {
-                call.respond(HttpStatusCode.NotFound)
+            val fallback = DefaultIdentityAvatar.bytes()
+            if (fallback != null && fallback.isNotEmpty()) {
+                call.respondBytes(fallback, ContentType.Image.PNG)
                 return@get
             }
-            call.respond(LocalFileContent(file, ContentType.Image.PNG))
+            call.respond(HttpStatusCode.NotFound)
         }
     }
 }
