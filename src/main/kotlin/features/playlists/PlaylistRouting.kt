@@ -4,6 +4,7 @@ import com.example.database.PlaylistLikes
 import com.example.database.PlaylistTracks
 import com.example.database.Playlists
 import com.example.database.Tracks
+import com.example.database.Users
 import com.example.utils.currentUserId
 import com.example.utils.primaryArtist
 import io.ktor.http.*
@@ -15,6 +16,7 @@ import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.lowerCase
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
@@ -67,6 +69,7 @@ data class PlaylistDetailRemote(
     val title: String?,
     val isPublic: Boolean?,
     val ownerUserId: Long,
+    val ownerNickname: String?,
     val likesCount: Int,
     val tracks: List<PlaylistTrackEntryRemote>,
 )
@@ -76,6 +79,7 @@ data class PublicPlaylistItemRemote(
     val id: Int,
     val title: String?,
     val ownerUserId: Long,
+    val ownerNickname: String?,
     val likesCount: Int,
     val trackCount: Int,
 )
@@ -101,9 +105,15 @@ fun Application.configurePlaylistRouting() {
     routing {
         get("/playlists/public") {
             val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 100) ?: 50
+            val qRaw = call.request.queryParameters["q"]?.trim()?.lowercase().orEmpty()
+            val qSafe = qRaw.replace("%", "").replace("_", "").take(64)
             val rows = newSuspendedTransaction {
                 Playlists.selectAll()
-                    .where { Playlists.isPublic eq true }
+                    .where {
+                        val public = Playlists.isPublic eq true
+                        if (qSafe.isEmpty()) public
+                        else public and (Playlists.title.lowerCase() like "%$qSafe%")
+                    }
                     .orderBy(Playlists.id, SortOrder.DESC)
                     .limit(limit)
                     .map { it }
@@ -125,12 +135,21 @@ fun Application.configurePlaylistRouting() {
                         .mapValues { it.value.size }
                 }
             }
+            val ownerIds = rows.map { it[Playlists.userId] }.distinct()
+            val nickByOwner = newSuspendedTransaction {
+                if (ownerIds.isEmpty()) emptyMap()
+                else {
+                    Users.selectAll().where { Users.id inList ownerIds }
+                        .associate { it[Users.id] to it[Users.nickname] }
+                }
+            }
             call.respond(
                 rows.map {
                     PublicPlaylistItemRemote(
                         id = it[Playlists.id].toInt(),
                         title = it[Playlists.title],
                         ownerUserId = it[Playlists.userId],
+                        ownerNickname = nickByOwner[it[Playlists.userId]],
                         likesCount = likeCounts[it[Playlists.id]] ?: 0,
                         trackCount = trackCounts[it[Playlists.id]] ?: 0,
                     )
@@ -243,12 +262,16 @@ fun Application.configurePlaylistRouting() {
                     artist = tr[Tracks.artists].primaryArtist().ifBlank { null },
                 )
             }
+            val ownerNick = newSuspendedTransaction {
+                Users.selectAll().where { Users.id eq owner }.singleOrNull()?.get(Users.nickname)
+            }
             call.respond(
                 PlaylistDetailRemote(
                     id = row[Playlists.id].toInt(),
                     title = row[Playlists.title],
                     isPublic = row[Playlists.isPublic],
                     ownerUserId = owner,
+                    ownerNickname = ownerNick,
                     likesCount = likesCount,
                     tracks = tracks,
                 ),
