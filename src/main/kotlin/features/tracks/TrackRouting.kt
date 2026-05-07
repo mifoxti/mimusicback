@@ -1,10 +1,17 @@
 package com.example.features.tracks
 
+import com.example.database.AlbumTracks
+import com.example.database.PlaylistTracks
+import com.example.database.RecommendationEvents
+import com.example.database.Thoughts
+import com.example.database.TrackGenres
+import com.example.database.TrackLikes
 import com.example.database.Tracks
 import com.example.services.TrackGenreService
 import com.example.utils.audioFileForTrack
 import com.example.utils.coverBase64
 import com.example.utils.currentUserId
+import com.example.utils.deleteTrackMediaFiles
 import com.example.utils.primaryArtist
 import com.example.utils.readTrackCoverBytes
 import io.ktor.http.*
@@ -17,14 +24,24 @@ import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SortOrder
+import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.deleteWhere
+import org.jetbrains.exposed.sql.lowerCase
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
+import org.jetbrains.exposed.sql.update
 
 @Serializable
 data class TrackGenresPutReceive(
     val genreSlugs: List<String>,
     val normalizeWeights: Boolean = false,
 )
+
+private sealed class DeleteTrackOutcome {
+    data object Missing : DeleteTrackOutcome()
+    data object Forbidden : DeleteTrackOutcome()
+    data class Deleted(val audioStorageKey: String?, val coverStorageKey: String?) : DeleteTrackOutcome()
+}
 
 fun Application.configureTrackRouting() {
     routing {
@@ -49,6 +66,53 @@ fun Application.configureTrackRouting() {
                 )
             }
             call.respond(out)
+        }
+
+        delete("/tracks/{id}") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@delete
+            }
+            val trackId = call.parameters["id"]?.toLongOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Invalid track id")
+                return@delete
+            }
+            val outcome = newSuspendedTransaction {
+                val row = Tracks.selectAll().where { Tracks.id eq trackId }.singleOrNull()
+                    ?: return@newSuspendedTransaction DeleteTrackOutcome.Missing
+                if (row[Tracks.uploaderUserId] != uid) {
+                    return@newSuspendedTransaction DeleteTrackOutcome.Forbidden
+                }
+                val audio = row[Tracks.audioStorageKey]
+                val cover = row[Tracks.coverStorageKey]
+                TrackGenres.deleteWhere { TrackGenres.trackId eq trackId }
+                TrackLikes.deleteWhere { TrackLikes.trackId eq trackId }
+                PlaylistTracks.deleteWhere { PlaylistTracks.trackId eq trackId }
+                AlbumTracks.deleteWhere { AlbumTracks.trackId eq trackId }
+                Thoughts.update({ Thoughts.attachmentTrackId eq trackId }) {
+                    it[Thoughts.attachmentTrackId] = null
+                }
+                RecommendationEvents.deleteWhere {
+                    (RecommendationEvents.targetType.lowerCase() eq "track") and
+                        (RecommendationEvents.targetId eq trackId)
+                }
+                Tracks.deleteWhere { Tracks.id eq trackId }
+                DeleteTrackOutcome.Deleted(audio, cover)
+            }
+            when (outcome) {
+                DeleteTrackOutcome.Missing -> {
+                    call.respond(HttpStatusCode.NotFound, "Трек не найден")
+                    return@delete
+                }
+                DeleteTrackOutcome.Forbidden -> {
+                    call.respond(HttpStatusCode.Forbidden, "Можно удалить только свой трек")
+                    return@delete
+                }
+                is DeleteTrackOutcome.Deleted -> {
+                    deleteTrackMediaFiles(outcome.audioStorageKey, outcome.coverStorageKey)
+                    call.respond(HttpStatusCode.NoContent)
+                }
+            }
         }
 
         put("/tracks/{id}/genres") {
