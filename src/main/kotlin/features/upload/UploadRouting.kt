@@ -10,6 +10,8 @@ import com.example.database.Users
 import com.example.services.TrackGenreService
 import com.example.utils.currentUserId
 import com.example.utils.looksLikeMp3Prefix
+import com.example.utils.persistEmbeddedCoverFromMp3File
+import com.example.utils.persistTrackCoverPng
 import com.example.utils.readAtMostBytesStrict
 import com.mpatric.mp3agic.Mp3File
 import io.ktor.http.*
@@ -103,9 +105,12 @@ fun Application.configureUploadRouting() {
                 return@post
             }
             val multipart = call.receiveMultipart()
-            var fileBytes: ByteArray? = null
-            var declaredContentType: ContentType? = null
+            var audioBytes: ByteArray? = null
+            var audioContentType: ContentType? = null
+            var coverBytes: ByteArray? = null
+            var coverContentType: ContentType? = null
             var titleOverride: String? = null
+            var artistOverride: String? = null
             var genreSlugsRaw: String? = null
             var genreNormalizeWeights = false
             var uploadTooLargeMessage: String? = null
@@ -113,22 +118,35 @@ fun Application.configureUploadRouting() {
             multipart.forEachPart { part ->
                 when (part) {
                     is PartData.FileItem -> {
-                        if (part.name == "file" || fileBytes == null) {
-                            val ct = part.contentType
-                            val stream = part.streamProvider()
-                            fileBytes = try {
-                                stream.use { it.readAtMostBytesStrict(maxBytes) }
-                            } catch (e: IllegalArgumentException) {
-                                part.dispose()
-                                uploadTooLargeMessage = e.message ?: "File too large"
-                                return@forEachPart
+                        when (part.name) {
+                            "file" -> {
+                                val stream = part.streamProvider()
+                                audioBytes = try {
+                                    stream.use { it.readAtMostBytesStrict(maxBytes) }
+                                } catch (e: IllegalArgumentException) {
+                                    part.dispose()
+                                    uploadTooLargeMessage = e.message ?: "File too large"
+                                    return@forEachPart
+                                }
+                                audioContentType = part.contentType
                             }
-                            declaredContentType = ct
+                            "cover" -> {
+                                val stream = part.streamProvider()
+                                coverBytes = try {
+                                    stream.use { it.readAtMostBytesStrict(maxBytes) }
+                                } catch (e: IllegalArgumentException) {
+                                    part.dispose()
+                                    uploadTooLargeMessage = e.message ?: "Cover too large"
+                                    return@forEachPart
+                                }
+                                coverContentType = part.contentType
+                            }
                         }
                     }
                     is PartData.FormItem -> {
                         when (part.name) {
                             "title" -> titleOverride = part.value.takeIf { it.isNotBlank() }
+                            "artist" -> artistOverride = part.value.takeIf { it.isNotBlank() }
                             "genreSlugs" -> genreSlugsRaw = part.value
                             "genreNormalizeWeights" ->
                                 genreNormalizeWeights = part.value.equals("true", ignoreCase = true)
@@ -144,12 +162,12 @@ fun Application.configureUploadRouting() {
                 return@post
             }
 
-            val bytes = fileBytes ?: run {
+            val bytes = audioBytes ?: run {
                 call.respond(HttpStatusCode.BadRequest, "Expected multipart part \"file\"")
                 return@post
             }
 
-            val mime = declaredContentType ?: ContentType.Application.OctetStream
+            val mime = audioContentType ?: ContentType.Application.OctetStream
             if (!mime.match(ContentType.Audio.MPEG) &&
                 !mime.match(ContentType.parse("audio/mp3")) &&
                 mime != ContentType.Application.OctetStream
@@ -160,6 +178,24 @@ fun Application.configureUploadRouting() {
             if (!looksLikeMp3Prefix(bytes)) {
                 call.respond(HttpStatusCode.BadRequest, "Файл не похож на MP3")
                 return@post
+            }
+
+            var customCoverPng: ByteArray? = null
+            val rawCover = coverBytes
+            if (rawCover != null && rawCover.isNotEmpty()) {
+                if (!coverContentType.isAllowedImage()) {
+                    call.respond(
+                        HttpStatusCode.UnsupportedMediaType,
+                        "Ожидается изображение (jpeg/png/gif/webp) в части \"cover\"",
+                    )
+                    return@post
+                }
+                customCoverPng = try {
+                    SafeImage.rasterToLosslessPngBytes(rawCover, maxBytes)
+                } catch (e: Exception) {
+                    call.respond(HttpStatusCode.BadRequest, e.message ?: "Некорректное изображение обложки")
+                    return@post
+                }
             }
 
             val musicRoot = musicStorageDirectory()
@@ -179,7 +215,9 @@ fun Application.configureUploadRouting() {
             val title = titleOverride?.trim()?.takeIf { it.isNotEmpty() }
                 ?: mp3.id3v2Tag?.title?.takeIf { it.isNotBlank() }
                 ?: dest.nameWithoutExtension
-            val artist = mp3.id3v2Tag?.artist
+            val artistFromUser = artistOverride?.trim()?.takeIf { it.isNotEmpty() }
+            val artistFromTag = mp3.id3v2Tag?.artist?.trim()?.takeIf { it.isNotEmpty() }
+            val artist = artistFromUser ?: artistFromTag
             val artistsList = if (artist.isNullOrBlank()) emptyList() else listOf(artist)
             val durationMs = mp3.lengthInSeconds.toInt().coerceAtLeast(0) * 1000
             val relativeKey = "uploads/$uid/$fileName"
@@ -206,12 +244,43 @@ fun Application.configureUploadRouting() {
                 normalizeWeights = genreNormalizeWeights,
             )
 
+            var coverKey: String? = null
+            var customApplied = false
+            var embeddedApplied = false
+
+            if (customCoverPng != null) {
+                coverKey = persistTrackCoverPng(trackId, customCoverPng)
+                customApplied = true
+                newSuspendedTransaction {
+                    Tracks.update({ Tracks.id eq trackId }) {
+                        it[Tracks.coverStorageKey] = coverKey
+                        it[Tracks.updatedAt] = OffsetDateTime.now()
+                    }
+                }
+            } else {
+                val embeddedKey = persistEmbeddedCoverFromMp3File(dest, trackId, maxBytes)
+                if (embeddedKey != null) {
+                    coverKey = embeddedKey
+                    embeddedApplied = true
+                    newSuspendedTransaction {
+                        Tracks.update({ Tracks.id eq trackId }) {
+                            it[Tracks.coverStorageKey] = embeddedKey
+                            it[Tracks.updatedAt] = OffsetDateTime.now()
+                        }
+                    }
+                }
+            }
+
             call.respond(
                 UploadTrackResponseRemote(
                     trackId = trackId,
                     audioStorageKey = relativeKey,
                     title = title,
+                    artist = artist,
                     durationSec = durationMs / 1000,
+                    coverStorageKey = coverKey,
+                    customCoverApplied = customApplied,
+                    embeddedCoverApplied = embeddedApplied,
                 ),
             )
         }
