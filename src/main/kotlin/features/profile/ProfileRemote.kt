@@ -35,3 +35,9 @@ data class MeInviteKeyReceiveRemote(
 data class MeInviteKeyResponseRemote(
     val keyCode: String,
 )
+
+@Serializable
+data class MeNowPlayingPutReceive(
+    /** Если null — очистить «сейчас слушает». */
+    val trackId: Int? = null,
+)

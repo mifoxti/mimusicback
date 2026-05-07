@@ -53,6 +53,7 @@ data class PlaylistListItemRemote(
     val title: String?,
     val isPublic: Boolean?,
     val trackCount: Int,
+    val coverStorageKey: String? = null,
 )
 
 @Serializable
@@ -209,6 +210,7 @@ fun Application.configurePlaylistRouting() {
                         title = it[Playlists.title],
                         isPublic = it[Playlists.isPublic],
                         trackCount = trackCounts[it[Playlists.id]] ?: 0,
+                        coverStorageKey = it[Playlists.coverStorageKey],
                     )
                 },
             )

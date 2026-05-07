@@ -14,7 +14,21 @@ class ColistenRoomManagerTest {
 
     @Test
     fun createRoom_join_broadcast_leave() = runTest {
-        val roomId = ColistenRoomManager.createRoom(ownerId = 1)
+        val roomId = ColistenRoomManager.createRoom(
+            ownerId = 1,
+            isOpen = true,
+            trackId = null,
+            trackKey = null,
+            queueTrackKeys = emptyList(),
+            positionSeconds = 0.0,
+            playing = false,
+            controlPauseHostOnly = true,
+            controlSeekHostOnly = true,
+            controlShuffleHostOnly = true,
+            controlRepeatHostOnly = true,
+            controlSkipHostOnly = true,
+            controlPlaylistHostOnly = true,
+        )
         assertNotNull(ColistenRoomManager.getState(roomId))
         assertEquals(1, ColistenRoomManager.getState(roomId)?.ownerId)
 
@@ -22,7 +36,7 @@ class ColistenRoomManagerTest {
         val joined = ColistenRoomManager.joinRoom(roomId, userId = 2) { msg ->
             received.trySend(msg)
         }
-        assertEquals(true, joined)
+        assertNotNull(joined)
         assertEquals(listOf(1, 2), ColistenRoomManager.getState(roomId)?.participantIds)
 
         ColistenRoomManager.setState(roomId, RoomState(

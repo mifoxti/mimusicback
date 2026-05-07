@@ -68,6 +68,30 @@ fun Application.configureTrackRouting() {
             call.respond(out)
         }
 
+        get("/tracks/{id}") {
+            val trackId = call.parameters["id"]?.toLongOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Invalid track id")
+                return@get
+            }
+            val row = newSuspendedTransaction {
+                Tracks.selectAll().where { Tracks.id eq trackId }.singleOrNull()
+            } ?: run {
+                call.respond(HttpStatusCode.NotFound, "Track not found")
+                return@get
+            }
+            val genres = TrackGenreService.loadGenreSlugsForTracks(listOf(trackId))[trackId].orEmpty()
+            call.respond(
+                TrackRemote(
+                    id = row[Tracks.id].toInt(),
+                    title = row[Tracks.title],
+                    artist = row[Tracks.artists].primaryArtist().ifBlank { null },
+                    duration = row[Tracks.durationMs]?.div(1000),
+                    cover = coverBase64(row[Tracks.audioStorageKey], row[Tracks.coverStorageKey]),
+                    genres = genres,
+                ),
+            )
+        }
+
         delete("/tracks/{id}") {
             val uid = call.currentUserId()?.toLong() ?: run {
                 call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")

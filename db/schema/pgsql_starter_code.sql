@@ -218,6 +218,21 @@ CREATE TABLE IF NOT EXISTS public.friendships
 COMMENT ON TABLE public.friendships
     IS 'Принятая дружба: одна строка на пару (user_low < user_high)';
 
+CREATE TABLE IF NOT EXISTS public.user_now_playing
+(
+    user_id bigint NOT NULL,
+    track_id bigint,
+    updated_at timestamp with time zone NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id),
+    CONSTRAINT user_now_playing_user_fk FOREIGN KEY (user_id)
+        REFERENCES public.users (id) ON DELETE CASCADE,
+    CONSTRAINT user_now_playing_track_fk FOREIGN KEY (track_id)
+        REFERENCES public.tracks (id) ON DELETE SET NULL
+);
+
+COMMENT ON TABLE public.user_now_playing
+    IS 'Последний трек, который пользователь отметил как «сейчас слушает»';
+
 CREATE TABLE IF NOT EXISTS public.track_likes
 (
     user_id bigint NOT NULL,

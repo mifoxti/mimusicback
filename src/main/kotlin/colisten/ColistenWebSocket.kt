@@ -1,18 +1,25 @@
 package com.example.colisten
 
 import com.example.database.AuthSessions
-import com.example.database.FriendRequests
+import com.example.database.Friendships
 import com.example.utils.sha256Hex
 import io.ktor.server.application.*
-import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
 import io.ktor.websocket.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.and
-import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
+
+private suspend fun areFriends(a: Long, b: Long): Boolean {
+    val (l, h) = if (a < b) a to b else b to a
+    return newSuspendedTransaction {
+        Friendships.selectAll().where {
+            (Friendships.userLow eq l) and (Friendships.userHigh eq h)
+        }.any()
+    }
+}
 
 fun Application.configureColistenWebSocket() {
     install(WebSockets)
@@ -44,51 +51,87 @@ fun Application.configureColistenWebSocket() {
             }
             val uid = userId.toLong()
             val ownerId = state.ownerId.toLong()
-            val isFriendOrOwner = state.ownerId == userId || newSuspendedTransaction {
-                FriendRequests.selectAll().where {
-                    (FriendRequests.status eq "accepted") and
-                        (((FriendRequests.fromUserId eq ownerId) and (FriendRequests.toUserId eq uid)) or
-                            ((FriendRequests.fromUserId eq uid) and (FriendRequests.toUserId eq ownerId)))
-                }.any()
-            }
-            if (!isFriendOrOwner) {
+            val isOwner = state.ownerId == userId
+            val allowed = isOwner || areFriends(uid, ownerId)
+            if (!allowed) {
                 close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "Only friends can join"))
                 return@webSocket
             }
-            val joined = ColistenRoomManager.joinRoom(roomId, userId) { msg ->
+            val joinedState = ColistenRoomManager.joinRoom(roomId, userId) { msg ->
                 send(Frame.Text(msg))
             }
-            if (!joined) {
+            if (joinedState == null) {
                 close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "Could not join room"))
                 return@webSocket
             }
             try {
-                state.let { s -> broadcast(roomId, s) }
+                broadcast(roomId, joinedState)
                 for (frame in incoming) {
                     when (frame) {
                         is Frame.Text -> {
                             val text = frame.readText()
                             val msg = parseClientMessage(text) ?: continue
                             val current = ColistenRoomManager.getState(roomId) ?: continue
-                            val updated = when (msg.type) {
-                                "play" -> current.copy(playing = true)
-                                "pause" -> current.copy(playing = false)
-                                "seek" -> current.copy(positionSeconds = msg.position ?: current.positionSeconds)
-                                "change_track" -> current.copy(
-                                    trackId = msg.trackId,
-                                    positionSeconds = 0.0,
-                                    playing = true
-                                )
-                                else -> current
+                            val isOwner = userId == current.ownerId
+                            val allowed = when (msg.type) {
+                                "host_state" -> isOwner
+                                "update_settings" -> isOwner
+                                else -> false
                             }
-                            ColistenRoomManager.setState(roomId, updated)
-                            broadcast(roomId, updated)
+                            if (!allowed) {
+                                continue
+                            }
+                            val updated = when (msg.type) {
+                                "update_settings" -> ColistenRoomManager.updateState(roomId) {
+                                    it.copy(
+                                        isOpen = msg.privateRoom?.not() ?: it.isOpen,
+                                        controlPauseHostOnly = msg.controlPauseHostOnly ?: it.controlPauseHostOnly,
+                                        controlSeekHostOnly = msg.controlSeekHostOnly ?: it.controlSeekHostOnly,
+                                        controlShuffleHostOnly = msg.controlShuffleHostOnly ?: it.controlShuffleHostOnly,
+                                        controlRepeatHostOnly = msg.controlRepeatHostOnly ?: it.controlRepeatHostOnly,
+                                        controlSkipHostOnly = msg.controlSkipHostOnly ?: it.controlSkipHostOnly,
+                                        controlPlaylistHostOnly = msg.controlPlaylistHostOnly ?: it.controlPlaylistHostOnly,
+                                    )
+                                }
+                                "host_state" -> ColistenRoomManager.updateState(roomId) {
+                                    val normalized = msg.queueTrackIds
+                                        ?.filter { it > 0 }
+                                        ?.distinct()
+                                        ?: it.queueTrackIds
+                                    val normalizedKeys = msg.queueTrackKeys
+                                        ?.map { key -> key.trim() }
+                                        ?.filter { key -> key.isNotEmpty() }
+                                        ?.distinct()
+                                        ?: it.queueTrackKeys
+                                    val nextTrackId = msg.trackId
+                                        ?: normalized.firstOrNull()
+                                        ?: it.trackId
+                                    val nextTrackKey = msg.trackKey
+                                        ?: normalizedKeys.firstOrNull()
+                                        ?: it.trackKey
+                                    it.copy(
+                                        trackId = nextTrackId,
+                                        trackKey = nextTrackKey,
+                                        queueTrackIds = normalized,
+                                        queueTrackKeys = normalizedKeys,
+                                        positionSeconds = msg.position ?: it.positionSeconds,
+                                        playing = msg.playing ?: it.playing,
+                                    )
+                                }
+                                else -> null
+                            }
+                            if (updated != null) {
+                                broadcast(roomId, updated)
+                            }
                         }
                         else -> {}
                     }
                 }
             } finally {
-                ColistenRoomManager.leaveRoom(roomId, userId)
+                val afterLeave = ColistenRoomManager.leaveRoom(roomId, userId)
+                if (afterLeave != null) {
+                    broadcast(roomId, afterLeave)
+                }
             }
         }
     }

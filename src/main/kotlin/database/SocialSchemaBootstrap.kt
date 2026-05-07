@@ -16,8 +16,8 @@ private fun Throwable.psqlCause(): PSQLException? {
 /** Таблицы этапа 6+ (`friendships`, при необходимости `notifications`) на неполной dev-БД. */
 fun ensureSocialGraphTables() {
     transaction {
-        SchemaUtils.createMissingTablesAndColumns(Notifications, Friendships)
-        for (table in arrayOf(Notifications, Friendships)) {
+        SchemaUtils.createMissingTablesAndColumns(Notifications, Friendships, UserNowPlaying, UserPresence)
+        for (table in arrayOf(Notifications, Friendships, UserNowPlaying, UserPresence)) {
             try {
                 SchemaUtils.create(table)
             } catch (e: Exception) {

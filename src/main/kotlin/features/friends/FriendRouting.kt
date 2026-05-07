@@ -1,9 +1,14 @@
 package com.example.features.friends
 
+import com.example.colisten.ColistenRoomManager
 import com.example.database.FriendRequests
 import com.example.database.Friendships
 import com.example.database.Notifications
+import com.example.database.Tracks
+import com.example.database.UserNowPlaying
+import com.example.database.UserPresence
 import com.example.database.Users
+import com.example.utils.primaryArtist
 import com.example.utils.currentUserId
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -11,6 +16,7 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.deleteWhere
@@ -331,10 +337,52 @@ fun Application.configureFriendRouting() {
                 if (otherIds.isEmpty()) return@newSuspendedTransaction emptyList()
                 val names = Users.selectAll().where { Users.id inList otherIds }
                     .associate { it[Users.id] to it[Users.nickname] }
+                val onlineThreshold = OffsetDateTime.now().minusSeconds(20)
+                val onlineUserIds = UserPresence.selectAll()
+                    .where {
+                        (UserPresence.userId inList otherIds) and
+                            (UserPresence.lastSeenAt greaterEq onlineThreshold)
+                    }
+                    .map { it[UserPresence.userId] }
+                    .toSet()
+                val freshNowPlayingThreshold = OffsetDateTime.now().minusSeconds(120)
+                val playingByUser = UserNowPlaying.selectAll()
+                    .where {
+                        (UserNowPlaying.userId inList otherIds) and
+                            (UserNowPlaying.updatedAt greaterEq freshNowPlayingThreshold)
+                    }
+                    .associateBy { it[UserNowPlaying.userId] }
+                val trackIds = playingByUser.values.mapNotNull { it[UserNowPlaying.trackId] }.distinct()
+                val trackRows = if (trackIds.isEmpty()) {
+                    emptyMap()
+                } else {
+                    Tracks.selectAll().where { Tracks.id inList trackIds }
+                        .associate { r ->
+                            r[Tracks.id] to Pair(
+                                r[Tracks.title],
+                                r[Tracks.artists].primaryArtist().ifBlank { null },
+                            )
+                        }
+                }
                 otherIds.map { oid ->
+                    val online = onlineUserIds.contains(oid)
+                    val np = playingByUser[oid]?.let { prow ->
+                        if (!online) return@let null
+                        val tid = prow[UserNowPlaying.trackId] ?: return@let null
+                        trackRows[tid]?.let { (title, artist) ->
+                            NowPlayingRemote(
+                                trackId = tid.toInt(),
+                                title = title,
+                                artist = artist,
+                            )
+                        }
+                    }
                     FriendRemote(
                         id = oid.toInt(),
                         username = names[oid].orEmpty(),
+                        online = online,
+                        nowPlaying = np,
+                        activeColistenRoomId = ColistenRoomManager.getActiveRoomIdForUser(oid.toInt()),
                     )
                 }
             }

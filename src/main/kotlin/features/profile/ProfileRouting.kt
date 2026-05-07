@@ -2,6 +2,8 @@ package com.example.features.profile
 
 import com.example.config.fileStorageRoot
 import com.example.database.InviteKeys
+import com.example.database.Tracks
+import com.example.database.UserNowPlaying
 import com.example.database.Users
 import com.example.utils.DefaultIdentityAvatar
 import com.example.utils.currentUserId
@@ -16,6 +18,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
@@ -85,6 +88,37 @@ fun Application.configureProfileRouting() {
                 return@get
             }
             call.respond(HttpStatusCode.NotFound)
+        }
+
+        put("/me/now-playing") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@put
+            }
+            val body = try {
+                call.receive<MeNowPlayingPutReceive>()
+            } catch (_: Exception) {
+                call.respond(HttpStatusCode.BadRequest, "Invalid JSON: expected { \"trackId\": number | null }")
+                return@put
+            }
+            val tid = body.trackId?.toLong()
+            val ok = newSuspendedTransaction {
+                UserNowPlaying.deleteWhere { UserNowPlaying.userId eq uid }
+                if (tid == null) return@newSuspendedTransaction true
+                val exists = Tracks.selectAll().where { Tracks.id eq tid }.any()
+                if (!exists) return@newSuspendedTransaction false
+                UserNowPlaying.insert {
+                    it[UserNowPlaying.userId] = uid
+                    it[UserNowPlaying.trackId] = tid
+                    it[UserNowPlaying.updatedAt] = OffsetDateTime.now()
+                }
+                true
+            }
+            if (!ok) {
+                call.respond(HttpStatusCode.NotFound, "Track not found")
+                return@put
+            }
+            call.respond(HttpStatusCode.NoContent)
         }
 
         put("/me") {

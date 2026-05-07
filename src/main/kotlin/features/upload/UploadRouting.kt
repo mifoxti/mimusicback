@@ -7,13 +7,14 @@ import com.example.database.Albums
 import com.example.database.Playlists
 import com.example.database.Tracks
 import com.example.database.Users
+import com.example.services.AudioTranscodeService
 import com.example.services.TrackGenreService
 import com.example.utils.currentUserId
 import com.example.utils.looksLikeMp3Prefix
+import com.example.utils.looksLikeSupportedAudioUpload
 import com.example.utils.persistEmbeddedCoverFromMp3File
 import com.example.utils.persistTrackCoverPng
 import com.example.utils.readAtMostBytesStrict
-import com.mpatric.mp3agic.Mp3File
 import io.ktor.http.*
 import io.ktor.http.content.*
 import io.ktor.server.application.*
@@ -167,16 +168,32 @@ fun Application.configureUploadRouting() {
                 return@post
             }
 
-            val mime = audioContentType ?: ContentType.Application.OctetStream
-            if (!mime.match(ContentType.Audio.MPEG) &&
-                !mime.match(ContentType.parse("audio/mp3")) &&
-                mime != ContentType.Application.OctetStream
-            ) {
-                call.respond(HttpStatusCode.UnsupportedMediaType, "Ожидается audio/mpeg или application/octet-stream (MP3)")
+            if (!AudioTranscodeService.ffmpegAvailable()) {
+                call.respond(
+                    HttpStatusCode.ServiceUnavailable,
+                    "На сервере не найден ffmpeg/ffprobe в PATH — конвертация в AAC недоступна",
+                )
                 return@post
             }
-            if (!looksLikeMp3Prefix(bytes)) {
-                call.respond(HttpStatusCode.BadRequest, "Файл не похож на MP3")
+
+            val mime = audioContentType ?: ContentType.Application.OctetStream
+            val mimeOk = mime.match(ContentType.Audio.MPEG) ||
+                mime.match(ContentType.parse("audio/mp3")) ||
+                mime.match(ContentType.parse("audio/wav")) ||
+                mime.match(ContentType.parse("audio/x-wav")) ||
+                mime.match(ContentType.parse("audio/mp4")) ||
+                mime.match(ContentType.parse("audio/m4a")) ||
+                mime.match(ContentType.parse("audio/x-m4a")) ||
+                mime == ContentType.Application.OctetStream
+            if (!mimeOk) {
+                call.respond(
+                    HttpStatusCode.UnsupportedMediaType,
+                    "Ожидается audio/mpeg, audio/wav, audio/mp4|m4a или application/octet-stream",
+                )
+                return@post
+            }
+            if (!looksLikeSupportedAudioUpload(bytes)) {
+                call.respond(HttpStatusCode.BadRequest, "Файл не похож на MP3/WAV/M4A")
                 return@post
             }
 
@@ -200,27 +217,33 @@ fun Application.configureUploadRouting() {
 
             val musicRoot = musicStorageDirectory()
             val dir = File(musicRoot, "uploads/$uid").apply { mkdirs() }
-            val fileName = "${UUID.randomUUID()}.mp3"
-            val dest = File(dir, fileName)
-            dest.writeBytes(bytes)
+            val work = File(dir, "_work").apply { mkdirs() }
+            val inFile = File(work, "${UUID.randomUUID()}_in")
+            inFile.writeBytes(bytes)
+            val outName = "${UUID.randomUUID()}.m4a"
+            val dest = File(dir, outName)
 
-            val mp3 = try {
-                Mp3File(dest)
-            } catch (e: Exception) {
+            val probeIn = AudioTranscodeService.probe(inFile)
+            val transcodeErr = AudioTranscodeService.transcodeToM4aAac(inFile, dest)
+            if (transcodeErr != null) {
+                inFile.delete()
                 dest.delete()
-                call.respond(HttpStatusCode.BadRequest, "Не удалось разобрать MP3: ${e.message}")
+                call.respond(HttpStatusCode.BadRequest, "Конвертация в AAC: $transcodeErr")
                 return@post
             }
+            val probeOut = AudioTranscodeService.probe(dest)
+            inFile.delete()
 
             val title = titleOverride?.trim()?.takeIf { it.isNotEmpty() }
-                ?: mp3.id3v2Tag?.title?.takeIf { it.isNotBlank() }
+                ?: probeIn.title ?: probeOut.title
                 ?: dest.nameWithoutExtension
             val artistFromUser = artistOverride?.trim()?.takeIf { it.isNotEmpty() }
-            val artistFromTag = mp3.id3v2Tag?.artist?.trim()?.takeIf { it.isNotEmpty() }
+            val artistFromTag = probeIn.artist ?: probeOut.artist
             val artist = artistFromUser ?: artistFromTag
             val artistsList = if (artist.isNullOrBlank()) emptyList() else listOf(artist)
-            val durationMs = mp3.lengthInSeconds.toInt().coerceAtLeast(0) * 1000
-            val relativeKey = "uploads/$uid/$fileName"
+            val durationSec = probeOut.durationSec ?: probeIn.durationSec ?: 0.0
+            val durationMs = (durationSec * 1000.0).toLong().coerceAtLeast(0L).toInt()
+            val relativeKey = "uploads/$uid/$outName"
             val hash = sha256File(dest)
 
             val trackId = newSuspendedTransaction {
@@ -257,17 +280,23 @@ fun Application.configureUploadRouting() {
                         it[Tracks.updatedAt] = OffsetDateTime.now()
                     }
                 }
-            } else {
-                val embeddedKey = persistEmbeddedCoverFromMp3File(dest, trackId, maxBytes)
-                if (embeddedKey != null) {
-                    coverKey = embeddedKey
-                    embeddedApplied = true
-                    newSuspendedTransaction {
-                        Tracks.update({ Tracks.id eq trackId }) {
-                            it[Tracks.coverStorageKey] = embeddedKey
-                            it[Tracks.updatedAt] = OffsetDateTime.now()
+            } else if (looksLikeMp3Prefix(bytes)) {
+                val tmpMp3 = File(work, "${UUID.randomUUID()}_meta.mp3")
+                try {
+                    tmpMp3.writeBytes(bytes)
+                    val embeddedKey = persistEmbeddedCoverFromMp3File(tmpMp3, trackId, maxBytes)
+                    if (embeddedKey != null) {
+                        coverKey = embeddedKey
+                        embeddedApplied = true
+                        newSuspendedTransaction {
+                            Tracks.update({ Tracks.id eq trackId }) {
+                                it[Tracks.coverStorageKey] = embeddedKey
+                                it[Tracks.updatedAt] = OffsetDateTime.now()
+                            }
                         }
                     }
+                } finally {
+                    tmpMp3.delete()
                 }
             }
 

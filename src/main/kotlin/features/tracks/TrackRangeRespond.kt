@@ -12,6 +12,12 @@ import java.io.File
 import java.io.RandomAccessFile
 import kotlin.math.min
 
+private fun audioContentTypeForFile(file: File): ContentType =
+    when (file.extension.lowercase()) {
+        "m4a", "mp4" -> ContentType.parse("audio/mp4")
+        else -> ContentType.Audio.MPEG
+    }
+
 private data class SatisfiableRange(val start: Long, val endInclusive: Long)
 
 /**
@@ -61,12 +67,13 @@ suspend fun ApplicationCall.respondTrackAudioWithOptionalRange(file: File) {
     response.header(HttpHeaders.AcceptRanges, "bytes")
 
     val rangeHeader = request.headers[HttpHeaders.Range]
+    val audioType = audioContentTypeForFile(file)
     if (rangeHeader.isNullOrBlank()) {
-        respond(LocalFileContent(file, ContentType.Audio.MPEG))
+        respond(LocalFileContent(file, audioType))
         return
     }
     if (!rangeHeader.startsWith("bytes=")) {
-        respond(LocalFileContent(file, ContentType.Audio.MPEG))
+        respond(LocalFileContent(file, audioType))
         return
     }
     if (',' in rangeHeader) {
@@ -106,7 +113,7 @@ suspend fun ApplicationCall.respondTrackAudioWithOptionalRange(file: File) {
     )
     respondBytes(
         bytes = bytes,
-        contentType = ContentType.Audio.MPEG,
+        contentType = audioType,
         status = HttpStatusCode.PartialContent,
     )
 }

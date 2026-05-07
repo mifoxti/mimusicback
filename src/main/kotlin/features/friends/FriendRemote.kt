@@ -17,4 +17,18 @@ data class FriendIncomingDto(
 )
 
 @Serializable
-data class FriendRemote(val id: Int, val username: String)
+data class NowPlayingRemote(
+    val trackId: Int,
+    val title: String,
+    val artist: String? = null,
+)
+
+@Serializable
+data class FriendRemote(
+    val id: Int,
+    val username: String,
+    val online: Boolean = false,
+    val nowPlaying: NowPlayingRemote? = null,
+    /** Активная комната Colisten, если друг сейчас в ней (in-memory на сервере). */
+    val activeColistenRoomId: String? = null,
+)

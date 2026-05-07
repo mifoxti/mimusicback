@@ -12,11 +12,13 @@ import com.example.colisten.configureColistenWebSocket
 import com.example.features.artist.configureArtistRouting
 import com.example.features.friends.configureFriendRouting
 import com.example.features.likes.configureLikeRouting
+import com.example.features.notifications.configureNotificationRouting
 import com.example.features.login.configureLoginRouting
 import com.example.features.profile.configureProfileRouting
 import com.example.features.loved.configureLovedTracksRouting
 import com.example.features.register.configureRegisterRouting
 import com.example.features.search.configureSearchRouting
+import com.example.features.users.configureUserProfileRouting
 import com.example.features.thoughts.configureThoughtsRouting
 import com.example.features.tracks.configureTrackRouting
 import com.example.features.media.configureFileServingRouting
@@ -58,6 +60,7 @@ fun Application.module() {
     configureLoginRouting()
     configureRegisterRouting()
     configureProfileRouting()
+    configureNotificationRouting()
     configureUploadRouting()
     configureGenreRouting()
     configureUserGenrePreferencesRouting()
@@ -67,6 +70,7 @@ fun Application.module() {
     configureTrackRouting()
     configureFileServingRouting()
     configureSearchRouting()
+    configureUserProfileRouting()
     configureThoughtsRouting()
     configureLovedTracksRouting()
     configureArtistRouting()
