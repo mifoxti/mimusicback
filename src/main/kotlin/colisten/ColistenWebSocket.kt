@@ -81,6 +81,7 @@ fun Application.configureColistenWebSocket() {
                             val isOwner = userId == current.ownerId
                             val allowed = when (msg.type) {
                                 "host_state" -> true
+                                "command" -> true
                                 "update_settings" -> isOwner
                                 "kick" -> isOwner
                                 else -> false
@@ -88,19 +89,34 @@ fun Application.configureColistenWebSocket() {
                             if (!allowed) {
                                 continue
                             }
+                            if (msg.type == "command" && !isOwner) {
+                                val command = buildRemoteGuestCommand(roomId, msg, userId)
+                                if (command != null) {
+                                    val sent = ColistenRoomManager.sendToUser(
+                                        roomId,
+                                        current.ownerId,
+                                        clientMessageToJson(command),
+                                    )
+                                    println(
+                                        "[colisten] WS remote_command room=$roomId sender=$userId owner=${current.ownerId} sent=$sent",
+                                    )
+                                }
+                                continue
+                            }
                             val updated = when (msg.type) {
                                 "update_settings" -> ColistenRoomManager.updateState(roomId) {
                                     it.copy(
                                         isOpen = msg.privateRoom?.not() ?: it.isOpen,
-                                        controlPauseHostOnly = msg.controlPauseHostOnly ?: it.controlPauseHostOnly,
-                                        controlSeekHostOnly = msg.controlSeekHostOnly ?: it.controlSeekHostOnly,
-                                        controlShuffleHostOnly = msg.controlShuffleHostOnly ?: it.controlShuffleHostOnly,
-                                        controlRepeatHostOnly = msg.controlRepeatHostOnly ?: it.controlRepeatHostOnly,
-                                        controlSkipHostOnly = msg.controlSkipHostOnly ?: it.controlSkipHostOnly,
+                                        controlPauseHostOnly = true,
+                                        controlSeekHostOnly = true,
+                                        controlShuffleHostOnly = true,
+                                        controlRepeatHostOnly = true,
+                                        controlSkipHostOnly = true,
                                         controlPlaylistHostOnly = msg.controlPlaylistHostOnly ?: it.controlPlaylistHostOnly,
                                     )
                                 }
                                 "host_state" -> applyHostStateMessage(roomId, msg, userId)
+                                "command" -> applyHostStateMessage(roomId, msg, userId)
                                 "kick" -> {
                                     val targetUserId = msg.targetUserId
                                     if (targetUserId == null || targetUserId == current.ownerId) {

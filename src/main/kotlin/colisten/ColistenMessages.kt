@@ -16,6 +16,9 @@ data class ColistenClientMessage(
     val queueTrackKeys: List<String>? = null,
     val shuffleEnabled: Boolean? = null,
     val repeatMode: String? = null,
+    val baseStateVersion: Long? = null,
+    val explicitAction: Boolean? = null,
+    val senderUserId: Int? = null,
     val privateRoom: Boolean? = null,
     val controlPauseHostOnly: Boolean? = null,
     val controlSeekHostOnly: Boolean? = null,
@@ -59,6 +62,9 @@ fun parseClientMessage(raw: String): ColistenClientMessage? = try {
 } catch (_: Exception) {
     null
 }
+
+fun clientMessageToJson(message: ColistenClientMessage): String =
+    json.encodeToString(message)
 
 fun stateToJson(state: RoomState): String =
     json.encodeToString(

@@ -79,11 +79,11 @@ fun Application.configureColistenRouting() {
                 playing = body.playing,
                 shuffleEnabled = body.shuffleEnabled,
                 repeatMode = body.repeatMode,
-                controlPauseHostOnly = body.controlPauseHostOnly,
-                controlSeekHostOnly = body.controlSeekHostOnly,
-                controlShuffleHostOnly = body.controlShuffleHostOnly,
-                controlRepeatHostOnly = body.controlRepeatHostOnly,
-                controlSkipHostOnly = body.controlSkipHostOnly,
+                controlPauseHostOnly = true,
+                controlSeekHostOnly = true,
+                controlShuffleHostOnly = true,
+                controlRepeatHostOnly = true,
+                controlSkipHostOnly = true,
                 controlPlaylistHostOnly = body.controlPlaylistHostOnly,
             )
             println(
@@ -132,13 +132,33 @@ fun Application.configureColistenRouting() {
                 call.respond(HttpStatusCode.BadRequest, "Invalid body")
                 return@post
             }
-            val updated = applyHostStateMessage(roomId, body, userId)
+            if (body.type == "command" && userId != state.ownerId) {
+                val command = buildRemoteGuestCommand(roomId, body, userId)
+                if (command == null) {
+                    call.respond(state)
+                    return@post
+                }
+                val sent = ColistenRoomManager.sendToUser(
+                    roomId,
+                    state.ownerId,
+                    clientMessageToJson(command),
+                )
+                println(
+                    "[colisten] REST remote_command room=$roomId sender=$userId owner=${state.ownerId} sent=$sent",
+                )
+                call.respond(state)
+                return@post
+            }
+            val updated = when (body.type) {
+                "command" -> applyHostStateMessage(roomId, body, userId)
+                else -> applyHostStateMessage(roomId, body, userId)
+            }
             if (updated == null) {
                 call.respond(HttpStatusCode.NotFound, "Room not found")
                 return@post
             }
             println(
-                "[colisten] REST host_state room=$roomId user=$userId v=${updated.stateVersion} trackId=${updated.trackId} trackKey=${updated.trackKey} pos=${updated.positionSeconds} playing=${updated.playing} shuffle=${updated.shuffleEnabled} repeat=${updated.repeatMode} queueKeys=${updated.queueTrackKeys}",
+                "[colisten] REST ${body.type} room=$roomId user=$userId v=${updated.stateVersion} trackId=${updated.trackId} trackKey=${updated.trackKey} pos=${updated.positionSeconds} playing=${updated.playing} shuffle=${updated.shuffleEnabled} repeat=${updated.repeatMode} queueKeys=${updated.queueTrackKeys}",
             )
             ColistenRoomManager.broadcast(roomId, stateToJson(updated))
             call.respond(updated)
