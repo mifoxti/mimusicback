@@ -52,7 +52,7 @@ fun Application.configureColistenWebSocket() {
             val uid = userId.toLong()
             val ownerId = state.ownerId.toLong()
             val isOwner = state.ownerId == userId
-            val allowed = isOwner || areFriends(uid, ownerId)
+            val allowed = isOwner || state.isOpen || areFriends(uid, ownerId)
             if (!allowed) {
                 close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "Only friends can join"))
                 return@webSocket
@@ -64,6 +64,9 @@ fun Application.configureColistenWebSocket() {
                 close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "Could not join room"))
                 return@webSocket
             }
+            println(
+                "[colisten] WS join room=$roomId user=$userId owner=${joinedState.ownerId} participants=${joinedState.participantIds} v=${joinedState.stateVersion}",
+            )
             try {
                 broadcast(roomId, joinedState)
                 for (frame in incoming) {
@@ -71,11 +74,15 @@ fun Application.configureColistenWebSocket() {
                         is Frame.Text -> {
                             val text = frame.readText()
                             val msg = parseClientMessage(text) ?: continue
+                            println(
+                                "[colisten] WS recv room=$roomId user=$userId type=${msg.type} trackId=${msg.trackId} trackKey=${msg.trackKey} pos=${msg.position} playing=${msg.playing} shuffle=${msg.shuffleEnabled} repeat=${msg.repeatMode}",
+                            )
                             val current = ColistenRoomManager.getState(roomId) ?: continue
                             val isOwner = userId == current.ownerId
                             val allowed = when (msg.type) {
-                                "host_state" -> isOwner
+                                "host_state" -> true
                                 "update_settings" -> isOwner
+                                "kick" -> isOwner
                                 else -> false
                             }
                             if (!allowed) {
@@ -93,34 +100,27 @@ fun Application.configureColistenWebSocket() {
                                         controlPlaylistHostOnly = msg.controlPlaylistHostOnly ?: it.controlPlaylistHostOnly,
                                     )
                                 }
-                                "host_state" -> ColistenRoomManager.updateState(roomId) {
-                                    val normalized = msg.queueTrackIds
-                                        ?.filter { it > 0 }
-                                        ?.distinct()
-                                        ?: it.queueTrackIds
-                                    val normalizedKeys = msg.queueTrackKeys
-                                        ?.map { key -> key.trim() }
-                                        ?.filter { key -> key.isNotEmpty() }
-                                        ?.distinct()
-                                        ?: it.queueTrackKeys
-                                    val nextTrackId = msg.trackId
-                                        ?: normalized.firstOrNull()
-                                        ?: it.trackId
-                                    val nextTrackKey = msg.trackKey
-                                        ?: normalizedKeys.firstOrNull()
-                                        ?: it.trackKey
-                                    it.copy(
-                                        trackId = nextTrackId,
-                                        trackKey = nextTrackKey,
-                                        queueTrackIds = normalized,
-                                        queueTrackKeys = normalizedKeys,
-                                        positionSeconds = msg.position ?: it.positionSeconds,
-                                        playing = msg.playing ?: it.playing,
-                                    )
+                                "host_state" -> applyHostStateMessage(roomId, msg, userId)
+                                "kick" -> {
+                                    val targetUserId = msg.targetUserId
+                                    if (targetUserId == null || targetUserId == current.ownerId) {
+                                        null
+                                    } else {
+                                        try {
+                                            ColistenRoomManager.getParticipants(roomId)
+                                                .firstOrNull { it.userId == targetUserId }
+                                                ?.send("""{"type":"kicked","roomId":"$roomId"}""")
+                                        } catch (_: Exception) {
+                                        }
+                                        ColistenRoomManager.leaveRoom(roomId, targetUserId)
+                                    }
                                 }
                                 else -> null
                             }
                             if (updated != null) {
+                                println(
+                                    "[colisten] WS updated room=$roomId v=${updated.stateVersion} trackId=${updated.trackId} trackKey=${updated.trackKey} pos=${updated.positionSeconds} playing=${updated.playing} shuffle=${updated.shuffleEnabled} repeat=${updated.repeatMode}",
+                                )
                                 broadcast(roomId, updated)
                             }
                         }
@@ -129,6 +129,7 @@ fun Application.configureColistenWebSocket() {
                 }
             } finally {
                 val afterLeave = ColistenRoomManager.leaveRoom(roomId, userId)
+                println("[colisten] WS leave room=$roomId user=$userId remaining=${afterLeave?.participantIds}")
                 if (afterLeave != null) {
                     broadcast(roomId, afterLeave)
                 }

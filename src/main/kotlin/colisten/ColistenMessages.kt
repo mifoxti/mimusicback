@@ -14,6 +14,8 @@ data class ColistenClientMessage(
     val trackKey: String? = null,
     val queueTrackIds: List<Int>? = null,
     val queueTrackKeys: List<String>? = null,
+    val shuffleEnabled: Boolean? = null,
+    val repeatMode: String? = null,
     val privateRoom: Boolean? = null,
     val controlPauseHostOnly: Boolean? = null,
     val controlSeekHostOnly: Boolean? = null,
@@ -21,6 +23,7 @@ data class ColistenClientMessage(
     val controlRepeatHostOnly: Boolean? = null,
     val controlSkipHostOnly: Boolean? = null,
     val controlPlaylistHostOnly: Boolean? = null,
+    val targetUserId: Int? = null,
 )
 
 /** Сообщение состояния комнаты от сервера. */
@@ -36,6 +39,8 @@ data class ColistenStateMessage(
     val queueTrackKeys: List<String> = emptyList(),
     val positionSeconds: Double,
     val playing: Boolean,
+    val shuffleEnabled: Boolean = false,
+    val repeatMode: String = "off",
     val controlPauseHostOnly: Boolean = true,
     val controlSeekHostOnly: Boolean = true,
     val controlShuffleHostOnly: Boolean = true,
@@ -67,6 +72,8 @@ fun stateToJson(state: RoomState): String =
             queueTrackKeys = state.queueTrackKeys,
             positionSeconds = state.positionSeconds,
             playing = state.playing,
+            shuffleEnabled = state.shuffleEnabled,
+            repeatMode = state.repeatMode,
             controlPauseHostOnly = state.controlPauseHostOnly,
             controlSeekHostOnly = state.controlSeekHostOnly,
             controlShuffleHostOnly = state.controlShuffleHostOnly,

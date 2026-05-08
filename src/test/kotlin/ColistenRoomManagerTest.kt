@@ -1,7 +1,9 @@
 package com.example
 
 import com.example.colisten.ColistenRoomManager
+import com.example.colisten.ColistenClientMessage
 import com.example.colisten.RoomState
+import com.example.colisten.applyHostStateMessage
 import com.example.colisten.stateToJson
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.test.runTest
@@ -22,6 +24,8 @@ class ColistenRoomManagerTest {
             queueTrackKeys = emptyList(),
             positionSeconds = 0.0,
             playing = false,
+            shuffleEnabled = false,
+            repeatMode = "off",
             controlPauseHostOnly = true,
             controlSeekHostOnly = true,
             controlShuffleHostOnly = true,
@@ -56,5 +60,50 @@ class ColistenRoomManagerTest {
         assertEquals(listOf(1), ColistenRoomManager.getState(roomId)?.participantIds)
         ColistenRoomManager.leaveRoom(roomId, 1)
         assertNull(ColistenRoomManager.getState(roomId))
+    }
+
+    @Test
+    fun hostState_updatesRoomState() {
+        val roomId = ColistenRoomManager.createRoom(
+            ownerId = 10,
+            isOpen = true,
+            trackId = 1,
+            trackKey = "srv:1",
+            queueTrackKeys = listOf("srv:1"),
+            positionSeconds = 5.0,
+            playing = true,
+            shuffleEnabled = false,
+            repeatMode = "off",
+            controlPauseHostOnly = true,
+            controlSeekHostOnly = true,
+            controlShuffleHostOnly = true,
+            controlRepeatHostOnly = true,
+            controlSkipHostOnly = true,
+            controlPlaylistHostOnly = true,
+        )
+
+        val updated = applyHostStateMessage(
+            roomId,
+            ColistenClientMessage(
+                type = "host_state",
+                trackId = 2,
+                trackKey = "srv:2",
+                queueTrackKeys = listOf("srv:1", "srv:2"),
+                position = 42.0,
+                playing = false,
+                shuffleEnabled = true,
+                repeatMode = "all",
+            ),
+        )
+
+        assertNotNull(updated)
+        assertEquals(2, updated.trackId)
+        assertEquals("srv:2", updated.trackKey)
+        assertEquals(listOf("srv:1", "srv:2"), updated.queueTrackKeys)
+        assertEquals(42.0, updated.positionSeconds)
+        assertEquals(false, updated.playing)
+        assertEquals(true, updated.shuffleEnabled)
+        assertEquals("all", updated.repeatMode)
+        ColistenRoomManager.leaveRoom(roomId, 10)
     }
 }

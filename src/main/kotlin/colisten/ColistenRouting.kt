@@ -27,6 +27,8 @@ data class ColistenCreateRoomReceive(
     val queueTrackKeys: List<String> = emptyList(),
     val positionSeconds: Double = 0.0,
     val playing: Boolean = false,
+    val shuffleEnabled: Boolean = false,
+    val repeatMode: String = "off",
     val controlPauseHostOnly: Boolean = true,
     val controlSeekHostOnly: Boolean = true,
     val controlShuffleHostOnly: Boolean = true,
@@ -75,12 +77,17 @@ fun Application.configureColistenRouting() {
                 queueTrackKeys = body.queueTrackKeys.distinct(),
                 positionSeconds = body.positionSeconds,
                 playing = body.playing,
+                shuffleEnabled = body.shuffleEnabled,
+                repeatMode = body.repeatMode,
                 controlPauseHostOnly = body.controlPauseHostOnly,
                 controlSeekHostOnly = body.controlSeekHostOnly,
                 controlShuffleHostOnly = body.controlShuffleHostOnly,
                 controlRepeatHostOnly = body.controlRepeatHostOnly,
                 controlSkipHostOnly = body.controlSkipHostOnly,
                 controlPlaylistHostOnly = body.controlPlaylistHostOnly,
+            )
+            println(
+                "[colisten] REST create_room room=$roomId owner=$userId trackId=${body.trackId} trackKey=${body.trackKey} pos=${body.positionSeconds} playing=${body.playing} shuffle=${body.shuffleEnabled} repeat=${body.repeatMode} queueKeys=${body.queueTrackKeys}",
             )
             call.respond(mapOf("roomId" to roomId))
         }
@@ -95,7 +102,46 @@ fun Application.configureColistenRouting() {
                 call.respond(HttpStatusCode.NotFound, "Room not found")
                 return@get
             }
+            println(
+                "[colisten] REST get_room room=$roomId owner=${state.ownerId} v=${state.stateVersion} trackId=${state.trackId} trackKey=${state.trackKey} pos=${state.positionSeconds} playing=${state.playing} shuffle=${state.shuffleEnabled} repeat=${state.repeatMode} participants=${state.participantIds}",
+            )
             call.respond(state)
+        }
+
+        post("/colisten/room/{roomId}/host-state") {
+            val userId = call.currentUserId()?.toInt() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@post
+            }
+            val roomId = call.parameters["roomId"] ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Missing roomId")
+                return@post
+            }
+            val state = ColistenRoomManager.getState(roomId)
+            if (state == null) {
+                call.respond(HttpStatusCode.NotFound, "Room not found")
+                return@post
+            }
+            if (state.ownerId != userId && userId !in state.participantIds) {
+                call.respond(HttpStatusCode.Forbidden, "Only room participants can update room state")
+                return@post
+            }
+            val body = try {
+                call.receive<ColistenClientMessage>()
+            } catch (_: Exception) {
+                call.respond(HttpStatusCode.BadRequest, "Invalid body")
+                return@post
+            }
+            val updated = applyHostStateMessage(roomId, body, userId)
+            if (updated == null) {
+                call.respond(HttpStatusCode.NotFound, "Room not found")
+                return@post
+            }
+            println(
+                "[colisten] REST host_state room=$roomId user=$userId v=${updated.stateVersion} trackId=${updated.trackId} trackKey=${updated.trackKey} pos=${updated.positionSeconds} playing=${updated.playing} shuffle=${updated.shuffleEnabled} repeat=${updated.repeatMode} queueKeys=${updated.queueTrackKeys}",
+            )
+            ColistenRoomManager.broadcast(roomId, stateToJson(updated))
+            call.respond(updated)
         }
 
         get("/colisten/rooms/open") {

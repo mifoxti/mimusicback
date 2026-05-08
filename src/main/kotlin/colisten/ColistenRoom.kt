@@ -1,6 +1,7 @@
 package com.example.colisten
 
 import kotlinx.serialization.Serializable
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
@@ -17,6 +18,8 @@ data class RoomState(
     val queueTrackKeys: List<String> = emptyList(),
     val positionSeconds: Double = 0.0,
     val playing: Boolean = false,
+    val shuffleEnabled: Boolean = false,
+    val repeatMode: String = "off",
     val controlPauseHostOnly: Boolean = true,
     val controlSeekHostOnly: Boolean = true,
     val controlShuffleHostOnly: Boolean = true,
@@ -50,6 +53,8 @@ object ColistenRoomManager {
         queueTrackKeys: List<String>,
         positionSeconds: Double,
         playing: Boolean,
+        shuffleEnabled: Boolean,
+        repeatMode: String,
         controlPauseHostOnly: Boolean,
         controlSeekHostOnly: Boolean,
         controlShuffleHostOnly: Boolean,
@@ -70,6 +75,8 @@ object ColistenRoomManager {
                 queueTrackKeys = if (queueTrackKeys.isNotEmpty()) queueTrackKeys else trackKey?.let { listOf(it) } ?: emptyList(),
                 positionSeconds = positionSeconds,
                 playing = playing,
+                shuffleEnabled = shuffleEnabled,
+                repeatMode = repeatMode.trim().lowercase().ifBlank { "off" },
                 controlPauseHostOnly = controlPauseHostOnly,
                 controlSeekHostOnly = controlSeekHostOnly,
                 controlShuffleHostOnly = controlShuffleHostOnly,
@@ -130,9 +137,8 @@ object ColistenRoomManager {
         lock.withLock {
             val state = roomState[roomId] ?: return null
             val list = rooms.getOrPut(roomId) { mutableListOf() }
-            if (list.none { it.userId == userId }) {
-                list.add(RoomParticipant(userId, send))
-            }
+            list.removeAll { it.userId == userId }
+            list.add(RoomParticipant(userId, send))
             val ids = (listOf(state.ownerId) + list.map { it.userId }).distinct()
             val now = System.currentTimeMillis()
             val (positionSeconds, wallClockMs) = advancePlaybackAnchorIfNeeded(state, now)
@@ -171,7 +177,7 @@ object ColistenRoomManager {
                 roomState[roomId] = next
                 out = next
             }
-            if (list.isEmpty()) {
+            if (list.isEmpty() && userId == st?.ownerId) {
                 rooms.remove(roomId)
                 roomState.remove(roomId)
                 userActiveRoom.filterValues { it == roomId }.keys.forEach { userActiveRoom.remove(it) }
@@ -186,13 +192,79 @@ object ColistenRoomManager {
 
     suspend fun broadcast(roomId: String, message: String) {
         val list = lock.withLock { rooms[roomId]?.toList() ?: emptyList() }
+        val failedUserIds = mutableSetOf<Int>()
         for (p in list) {
-            try {
-                p.send(message)
-            } catch (_: Exception) { /* disconnected */ }
+            val sent = try {
+                withTimeoutOrNull(350) {
+                    p.send(message)
+                    true
+                } == true
+            } catch (_: Exception) {
+                false
+            }
+            if (!sent) {
+                println("[colisten] broadcast failed room=$roomId user=${p.userId}; pruning participant")
+                failedUserIds.add(p.userId)
+            }
+        }
+        if (failedUserIds.isNotEmpty()) {
+            lock.withLock {
+                rooms[roomId]?.removeAll { it.userId in failedUserIds }
+            }
         }
     }
 
     fun getParticipants(roomId: String): List<RoomParticipant> =
         rooms[roomId]?.toList() ?: emptyList()
 }
+
+fun applyHostStateMessage(roomId: String, msg: ColistenClientMessage, senderUserId: Int? = null): RoomState? =
+    ColistenRoomManager.updateState(roomId) { cur ->
+        val senderIsOwner = senderUserId == null || senderUserId == cur.ownerId
+        val canPause = senderIsOwner || !cur.controlPauseHostOnly
+        val canSeek = senderIsOwner || !cur.controlSeekHostOnly
+        val canShuffle = senderIsOwner || !cur.controlShuffleHostOnly
+        val canRepeat = senderIsOwner || !cur.controlRepeatHostOnly
+        val canSkip = senderIsOwner || !cur.controlSkipHostOnly
+        val canEditPlaylist = senderIsOwner || !cur.controlPlaylistHostOnly
+        val requestedQueueIds = msg.queueTrackIds
+            ?.filter { id -> id > 0 }
+            ?.distinct()
+        val requestedQueueKeys = msg.queueTrackKeys
+            ?.map { key -> key.trim() }
+            ?.filter { key -> key.isNotEmpty() }
+            ?.distinct()
+        val normalized = if (canEditPlaylist) requestedQueueIds ?: cur.queueTrackIds else cur.queueTrackIds
+        val normalizedKeys = if (canEditPlaylist) requestedQueueKeys ?: cur.queueTrackKeys else cur.queueTrackKeys
+        val nextTrackId = if (senderIsOwner) {
+            msg.trackId ?: normalized.firstOrNull() ?: cur.trackId
+        } else if (canSkip) {
+            msg.trackId ?: cur.trackId
+        } else {
+            cur.trackId
+        }
+        val nextTrackKey = if (senderIsOwner) {
+            msg.trackKey ?: normalizedKeys.firstOrNull() ?: cur.trackKey
+        } else if (canSkip) {
+            msg.trackKey ?: cur.trackKey
+        } else {
+            cur.trackKey
+        }
+        val nextRepeatMode = msg.repeatMode
+            ?.trim()
+            ?.lowercase()
+            ?.takeIf { mode -> mode == "off" || mode == "all" || mode == "one" }
+            ?.takeIf { canRepeat }
+            ?: cur.repeatMode
+        val trackChanged = nextTrackId != cur.trackId || nextTrackKey != cur.trackKey
+        cur.copy(
+            trackId = nextTrackId,
+            trackKey = nextTrackKey,
+            queueTrackIds = normalized,
+            queueTrackKeys = normalizedKeys,
+            positionSeconds = if (canSeek || canPause || trackChanged) msg.position ?: cur.positionSeconds else cur.positionSeconds,
+            playing = if (canPause || trackChanged) msg.playing ?: cur.playing else cur.playing,
+            shuffleEnabled = if (canShuffle) msg.shuffleEnabled ?: cur.shuffleEnabled else cur.shuffleEnabled,
+            repeatMode = nextRepeatMode,
+        )
+    }
