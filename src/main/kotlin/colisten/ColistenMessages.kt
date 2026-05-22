@@ -53,6 +53,7 @@ data class ColistenStateMessage(
     val participantIds: List<Int>,
     val stateVersion: Long = 0L,
     val wallClockMs: Long = 0L,
+    val controlSeq: Long = 0L,
 )
 
 private val json = Json { ignoreUnknownKeys = true }
@@ -89,5 +90,6 @@ fun stateToJson(state: RoomState): String =
             participantIds = state.participantIds,
             stateVersion = state.stateVersion,
             wallClockMs = state.wallClockMs,
+            controlSeq = state.controlSeq,
         ),
     )

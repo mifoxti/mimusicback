@@ -29,6 +29,7 @@ data class RoomState(
     val participantIds: List<Int> = emptyList(),
     val stateVersion: Long = 0L,
     val wallClockMs: Long = 0L,
+    val controlSeq: Long = 0L,
 )
 
 /** Участник комнаты: userId и функция отправки сообщения в его WebSocket. */
@@ -404,6 +405,9 @@ fun applyHostStateMessage(roomId: String, msg: ColistenClientMessage, senderUser
             playing = if (canPause || trackChanged) msg.playing ?: cur.playing else cur.playing,
             shuffleEnabled = if (canShuffle) msg.shuffleEnabled ?: cur.shuffleEnabled else cur.shuffleEnabled,
             repeatMode = nextRepeatMode,
+            // Инкрементируем controlSeq для каждой явной команды, чтобы гости
+            // не отфильтровывали сообщение по staleVersion даже при неизменном state.
+            controlSeq = if (explicitAction) cur.controlSeq + 1 else cur.controlSeq,
         )
         println(
             "[colisten] apply_state room=$roomId sender=$senderUserId owner=${cur.ownerId} type=${msg.type} " +

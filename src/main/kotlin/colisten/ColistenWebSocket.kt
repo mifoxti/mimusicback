@@ -107,11 +107,11 @@ fun Application.configureColistenWebSocket() {
                                 "update_settings" -> ColistenRoomManager.updateState(roomId) {
                                     it.copy(
                                         isOpen = msg.privateRoom?.not() ?: it.isOpen,
-                                        controlPauseHostOnly = true,
-                                        controlSeekHostOnly = true,
-                                        controlShuffleHostOnly = true,
-                                        controlRepeatHostOnly = true,
-                                        controlSkipHostOnly = true,
+                                        controlPauseHostOnly = msg.controlPauseHostOnly ?: it.controlPauseHostOnly,
+                                        controlSeekHostOnly = msg.controlSeekHostOnly ?: it.controlSeekHostOnly,
+                                        controlShuffleHostOnly = msg.controlShuffleHostOnly ?: it.controlShuffleHostOnly,
+                                        controlRepeatHostOnly = msg.controlRepeatHostOnly ?: it.controlRepeatHostOnly,
+                                        controlSkipHostOnly = msg.controlSkipHostOnly ?: it.controlSkipHostOnly,
                                         controlPlaylistHostOnly = msg.controlPlaylistHostOnly ?: it.controlPlaylistHostOnly,
                                     )
                                 }
