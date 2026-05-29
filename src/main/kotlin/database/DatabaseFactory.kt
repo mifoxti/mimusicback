@@ -14,6 +14,8 @@ object DatabaseFactory {
             username = getenv("DB_USER") ?: getenv("PGUSER") ?: "postgres"
             password = getenv("DB_PASSWORD") ?: getenv("PGPASSWORD") ?: "admin"
             maximumPoolSize = getenv("DB_POOL_SIZE")?.toIntOrNull()?.coerceAtLeast(1) ?: 10
+            connectionTimeout = 10_000
+            validationTimeout = 5_000
         }
 
         Database.connect(HikariDataSource(config))

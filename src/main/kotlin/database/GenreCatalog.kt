@@ -59,6 +59,12 @@ private val genreSeeds: List<GenreSeed> =
         GenreSeed("other", "Other", 900),
     )
 
+fun ensureRecommendationTables() {
+    transaction {
+        SchemaUtils.createMissingTablesAndColumns(UserGenrePreferences, RecommendationEvents)
+    }
+}
+
 fun ensureGenresSeeded() {
     transaction {
         // DDL — `pgsql_starter_code.sql`; при неполной БД поднимаем минимум для сида и `GET /tracks`.

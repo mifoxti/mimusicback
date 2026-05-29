@@ -1,11 +1,13 @@
 package com.example
 
+import com.example.config.getenv
 import com.example.config.fileStorageRoot
 import com.example.config.musicStorageDirectory
 import com.example.database.DatabaseFactory
 import com.example.database.ensureBootstrapTestInviteKey
 import com.example.database.ensureBootstrapUploaderUserId
 import com.example.database.ensureGenresSeeded
+import com.example.database.ensureRecommendationTables
 import com.example.database.ensureSocialGraphTables
 import com.example.colisten.configureColistenRouting
 import com.example.colisten.configureColistenWebSocket
@@ -51,6 +53,7 @@ fun Application.module() {
     val scannerUploaderId = ensureBootstrapUploaderUserId()
     ensureBootstrapTestInviteKey()
     ensureGenresSeeded()
+    ensureRecommendationTables()
     ensureSocialGraphTables()
     configureSecurity()
     configureHTTP()
@@ -78,13 +81,16 @@ fun Application.module() {
     configureColistenRouting()
     configureColistenWebSocket()
 
-    val musicScanner = MusicScanner(musicStorageDir, scannerUploaderId)
-
-    // Запускаем сканирование каждые 60 минут
-    CoroutineScope(Dispatchers.IO).launch {
-        while (true) {
-            delay(TimeUnit.SECONDS.toMillis(1))
-            musicScanner.scanAndUpdateDatabase()
+    if (getenv("MUSIC_SCAN_ENABLED")?.equals("false", ignoreCase = true) != true) {
+        val musicScanner = MusicScanner(musicStorageDir, scannerUploaderId)
+        // Запускаем сканирование каждые 60 минут (не каждую секунду)
+        CoroutineScope(Dispatchers.IO).launch {
+            while (true) {
+                delay(TimeUnit.MINUTES.toMillis(60))
+                musicScanner.scanAndUpdateDatabase()
+            }
         }
+    } else {
+        log.info("MusicScanner disabled (MUSIC_SCAN_ENABLED=false)")
     }
 }
