@@ -4,6 +4,7 @@ import com.example.database.TrackLikes
 import com.example.database.Tracks
 import com.example.database.Users
 import com.example.utils.coverBase64
+import com.example.utils.currentUserId
 import com.example.utils.primaryArtist
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -62,15 +63,16 @@ fun Application.configureSearchRouting() {
         }
 
         get("/search") {
-            var searchQuery = call.request.queryParameters["q"] ?: ""
-            searchQuery = searchQuery.lowercase()
-
-            val userId = call.request.queryParameters["userId"]?.toLongOrNull()
-
-            if (searchQuery.isEmpty()) {
-                call.respond(HttpStatusCode.BadRequest, "Query parameter 'q' is required")
+            var searchQuery = call.request.queryParameters["q"]?.trim()?.lowercase().orEmpty()
+            searchQuery = searchQuery.replace("%", "").replace("_", "").take(64)
+            if (searchQuery.length < 2) {
+                call.respond(HttpStatusCode.BadRequest, "Query parameter 'q' must be at least 2 characters")
                 return@get
             }
+
+            val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 100) ?: 40
+            val userId = call.currentUserId()?.toLong()
+                ?: call.request.queryParameters["userId"]?.toLongOrNull()
 
             val tracks = newSuspendedTransaction {
                 val likedTrackIds = if (userId != null) {
@@ -79,13 +81,21 @@ fun Application.configureSearchRouting() {
 
                 val byTitle = Tracks.selectAll().where {
                     Tracks.title.lowerCase() like "%$searchQuery%"
-                }.toList()
-                val byTitleIds = byTitle.map { it[Tracks.id] }.toSet()
-                val byArtistOnly = Tracks.selectAll().toList().filter { row ->
-                    row[Tracks.id] !in byTitleIds &&
-                        row[Tracks.artists].orEmpty().any { it.lowercase().contains(searchQuery) }
                 }
-                (byTitle + byArtistOnly).map { row ->
+                    .orderBy(Tracks.id, org.jetbrains.exposed.sql.SortOrder.DESC)
+                    .limit(limit)
+                    .toList()
+                val byTitleIds = byTitle.map { it[Tracks.id] }.toSet()
+                val artistCap = (limit * 3).coerceAtMost(300)
+                val byArtistOnly = Tracks.selectAll()
+                    .orderBy(Tracks.id, org.jetbrains.exposed.sql.SortOrder.DESC)
+                    .limit(artistCap)
+                    .filter { row ->
+                        row[Tracks.id] !in byTitleIds &&
+                            row[Tracks.artists].orEmpty().any { it.lowercase().contains(searchQuery) }
+                    }
+                    .take((limit - byTitle.size).coerceAtLeast(0))
+                (byTitle + byArtistOnly).take(limit).map { row ->
                     val trackId = row[Tracks.id]
                     SearchRemote(
                         id = trackId.toInt(),

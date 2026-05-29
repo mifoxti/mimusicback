@@ -4,6 +4,7 @@ import com.example.database.AlbumGenres
 import com.example.database.AlbumTracks
 import com.example.database.Albums
 import com.example.database.Tracks
+import com.example.database.Users
 import com.example.services.TrackGenreService
 import com.example.utils.currentUserId
 import com.example.utils.primaryArtist
@@ -15,8 +16,10 @@ import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.lowerCase
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import org.jetbrains.exposed.sql.update
@@ -54,6 +57,15 @@ data class AlbumListItemRemote(
     val id: Int,
     val title: String?,
     val isPublic: Boolean?,
+    val trackCount: Int,
+)
+
+@Serializable
+data class PublicAlbumItemRemote(
+    val id: Int,
+    val title: String?,
+    val ownerUserId: Int,
+    val ownerNickname: String?,
     val trackCount: Int,
 )
 
@@ -113,6 +125,58 @@ fun Application.configureAlbumRouting() {
                 normalizeWeights = body.normalizeGenreWeights,
             )
             call.respond(AlbumCreatedRemote(id = albumId.toInt(), title = title))
+        }
+
+        get("/albums/public") {
+            val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 100) ?: 50
+            val qRaw = call.request.queryParameters["q"]?.trim()?.lowercase().orEmpty()
+            val qSafe = qRaw.replace("%", "").replace("_", "").take(64)
+            if (qSafe.length < 2) {
+                call.respond(HttpStatusCode.BadRequest, "Query parameter 'q' must be at least 2 characters")
+                return@get
+            }
+            val rows = newSuspendedTransaction {
+                Albums.selectAll()
+                    .where {
+                        val public = Albums.isPublic eq true
+                        public and (Albums.title.lowerCase() like "%$qSafe%")
+                    }
+                    .orderBy(Albums.id, SortOrder.DESC)
+                    .limit(limit * 2)
+                    .map { it }
+            }
+            val ownerIds = rows.map { it[Albums.userId] }.distinct()
+            val nickByOwner = newSuspendedTransaction {
+                if (ownerIds.isEmpty()) emptyMap()
+                else {
+                    Users.selectAll().where { Users.id inList ownerIds }
+                        .associate { it[Users.id] to it[Users.nickname] }
+                }
+            }
+            val visible = rows.filter { row ->
+                val nick = nickByOwner[row[Albums.userId]].orEmpty()
+                !nick.startsWith("__")
+            }.take(limit)
+            val ids = visible.map { it[Albums.id] }
+            val trackCounts = newSuspendedTransaction {
+                if (ids.isEmpty()) emptyMap()
+                else {
+                    AlbumTracks.selectAll().where { AlbumTracks.albumId inList ids }
+                        .groupBy { it[AlbumTracks.albumId] }
+                        .mapValues { it.value.size }
+                }
+            }
+            call.respond(
+                visible.map {
+                    PublicAlbumItemRemote(
+                        id = it[Albums.id].toInt(),
+                        title = it[Albums.title],
+                        ownerUserId = it[Albums.userId].toInt(),
+                        ownerNickname = nickByOwner[it[Albums.userId]],
+                        trackCount = trackCounts[it[Albums.id]] ?: 0,
+                    )
+                },
+            )
         }
 
         get("/me/albums") {
