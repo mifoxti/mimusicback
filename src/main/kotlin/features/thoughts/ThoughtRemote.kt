@@ -48,3 +48,8 @@ data class ThoughtCreateReceive(
     val attachmentTrackId: Long? = null,
     val attachmentPlaylistId: Long? = null,
 )
+
+@Serializable
+data class ThoughtUpdateReceive(
+    val bodyText: String,
+)

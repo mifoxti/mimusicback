@@ -7,8 +7,10 @@ import com.example.database.DatabaseFactory
 import com.example.database.ensureBootstrapTestInviteKey
 import com.example.database.ensureBootstrapUploaderUserId
 import com.example.database.ensureGenresSeeded
+import com.example.database.ensureListenEventsTable
 import com.example.database.ensureRecommendationTables
 import com.example.database.ensureSocialGraphTables
+import com.example.features.history.configureListeningHistoryRouting
 import com.example.colisten.configureColistenRouting
 import com.example.colisten.configureColistenWebSocket
 import com.example.features.artist.configureArtistRouting
@@ -54,6 +56,7 @@ fun Application.module() {
     ensureBootstrapTestInviteKey()
     ensureGenresSeeded()
     ensureRecommendationTables()
+    ensureListenEventsTable()
     ensureSocialGraphTables()
     configureSecurity()
     configureHTTP()
@@ -75,6 +78,7 @@ fun Application.module() {
     configureSearchRouting()
     configureUserProfileRouting()
     configureThoughtsRouting()
+    configureListeningHistoryRouting()
     configureLovedTracksRouting()
     configureArtistRouting()
     configureFriendRouting()

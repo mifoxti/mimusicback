@@ -65,6 +65,12 @@ fun ensureRecommendationTables() {
     }
 }
 
+fun ensureListenEventsTable() {
+    transaction {
+        SchemaUtils.createMissingTablesAndColumns(ListenEvents)
+    }
+}
+
 fun ensureGenresSeeded() {
     transaction {
         // DDL — `pgsql_starter_code.sql`; при неполной БД поднимаем минимум для сида и `GET /tracks`.

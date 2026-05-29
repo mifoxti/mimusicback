@@ -24,6 +24,7 @@ import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
+import org.jetbrains.exposed.sql.update
 import java.time.OffsetDateTime
 
 private const val ATTACH_NONE = 0
@@ -84,6 +85,16 @@ private suspend fun engagementForThoughts(
             )
         }
     }
+}
+
+private suspend fun thoughtOwnedBy(thoughtId: Long, uid: Long): ResultRow? {
+    val row = newSuspendedTransaction {
+        Thoughts.selectAll().where { Thoughts.id eq thoughtId }.singleOrNull()
+    } ?: return null
+    if (row[Thoughts.authorUserId] != uid) return null
+    val nick = nicknameByIds(listOf(uid))[uid].orEmpty()
+    if (nick.startsWith("__")) return null
+    return row
 }
 
 /** Лайк/комментарий: мысль существует и автор не служебный (как в [GET /users/{id}/thoughts]). */
@@ -349,6 +360,66 @@ fun Application.configureThoughtsRouting() {
             } catch (_: Exception) {
                 call.respond(HttpStatusCode.InternalServerError, "Error updating thought")
             }
+        }
+
+        put("/thoughts/{thoughtId}") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@put
+            }
+            val thoughtId = call.parameters["thoughtId"]?.toLongOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Invalid thought id")
+                return@put
+            }
+            if (thoughtOwnedBy(thoughtId, uid) == null) {
+                call.respond(HttpStatusCode.NotFound, "Thought not found")
+                return@put
+            }
+            val body = try {
+                call.receive<ThoughtUpdateReceive>()
+            } catch (_: Exception) {
+                call.respond(HttpStatusCode.BadRequest, "Invalid JSON body")
+                return@put
+            }
+            val text = body.bodyText.trim()
+            if (text.isEmpty()) {
+                call.respond(HttpStatusCode.BadRequest, "bodyText is required")
+                return@put
+            }
+            val now = OffsetDateTime.now()
+            newSuspendedTransaction {
+                Thoughts.update({ Thoughts.id eq thoughtId }) {
+                    it[Thoughts.bodyText] = text
+                    it[Thoughts.updatedAt] = now
+                }
+            }
+            val updated = newSuspendedTransaction {
+                Thoughts.selectAll().where { Thoughts.id eq thoughtId }.single()
+            }
+            val friendSet = otherFriendIds(uid)
+            val item = mapThoughtRows(listOf(updated), uid, friendSet).first()
+            call.respond(item)
+        }
+
+        delete("/thoughts/{thoughtId}") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@delete
+            }
+            val thoughtId = call.parameters["thoughtId"]?.toLongOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Invalid thought id")
+                return@delete
+            }
+            if (thoughtOwnedBy(thoughtId, uid) == null) {
+                call.respond(HttpStatusCode.NotFound, "Thought not found")
+                return@delete
+            }
+            newSuspendedTransaction {
+                ThoughtLikes.deleteWhere { ThoughtLikes.thoughtId eq thoughtId }
+                Comments.deleteWhere { Comments.thoughtId eq thoughtId }
+                Thoughts.deleteWhere { Thoughts.id eq thoughtId }
+            }
+            call.respond(HttpStatusCode.NoContent)
         }
 
         post("/thoughts/{thoughtId}/like") {
