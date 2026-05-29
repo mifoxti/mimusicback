@@ -97,6 +97,18 @@ private suspend fun thoughtOwnedBy(thoughtId: Long, uid: Long): ResultRow? {
     return row
 }
 
+private suspend fun commentOwnedBy(thoughtId: Long, commentId: Long, uid: Long): ResultRow? {
+    val row = newSuspendedTransaction {
+        Comments.selectAll().where {
+            (Comments.id eq commentId) and (Comments.thoughtId eq thoughtId)
+        }.singleOrNull()
+    } ?: return null
+    if (row[Comments.authorUserId] != uid) return null
+    val nick = nicknameByIds(listOf(uid))[uid].orEmpty()
+    if (nick.startsWith("__")) return null
+    return row
+}
+
 /** Лайк/комментарий: мысль существует и автор не служебный (как в [GET /users/{id}/thoughts]). */
 private suspend fun thoughtOpenForInteraction(thoughtId: Long): Boolean {
     val row = newSuspendedTransaction {
@@ -589,6 +601,87 @@ fun Application.configureThoughtsRouting() {
                     createdAt = now.toString(),
                 ),
             )
+        }
+
+        put("/thoughts/{thoughtId}/comments/{commentId}") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@put
+            }
+            val thoughtId = call.parameters["thoughtId"]?.toLongOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Invalid thought id")
+                return@put
+            }
+            val commentId = call.parameters["commentId"]?.toLongOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Invalid comment id")
+                return@put
+            }
+            if (!thoughtOpenForInteraction(thoughtId)) {
+                call.respond(HttpStatusCode.NotFound, "Thought not found")
+                return@put
+            }
+            if (commentOwnedBy(thoughtId, commentId, uid) == null) {
+                call.respond(HttpStatusCode.NotFound, "Comment not found")
+                return@put
+            }
+            val body = try {
+                call.receive<ThoughtCommentUpdateReceive>()
+            } catch (_: Exception) {
+                call.respond(HttpStatusCode.BadRequest, "Invalid JSON body")
+                return@put
+            }
+            val text = body.bodyText.trim()
+            if (text.isEmpty()) {
+                call.respond(HttpStatusCode.BadRequest, "bodyText is required")
+                return@put
+            }
+            val now = OffsetDateTime.now()
+            newSuspendedTransaction {
+                Comments.update({ Comments.id eq commentId }) {
+                    it[Comments.bodyText] = text
+                    it[Comments.updatedAt] = now
+                }
+            }
+            val updated = newSuspendedTransaction {
+                Comments.selectAll().where { Comments.id eq commentId }.single()
+            }
+            val nick = nicknameByIds(listOf(uid))[uid].orEmpty()
+            call.respond(
+                ThoughtCommentRemote(
+                    id = updated[Comments.id],
+                    authorUserId = updated[Comments.authorUserId].toInt(),
+                    authorNickname = nick,
+                    bodyText = updated[Comments.bodyText],
+                    createdAt = updated[Comments.createdAt]?.toString(),
+                ),
+            )
+        }
+
+        delete("/thoughts/{thoughtId}/comments/{commentId}") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@delete
+            }
+            val thoughtId = call.parameters["thoughtId"]?.toLongOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Invalid thought id")
+                return@delete
+            }
+            val commentId = call.parameters["commentId"]?.toLongOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Invalid comment id")
+                return@delete
+            }
+            if (!thoughtOpenForInteraction(thoughtId)) {
+                call.respond(HttpStatusCode.NotFound, "Thought not found")
+                return@delete
+            }
+            if (commentOwnedBy(thoughtId, commentId, uid) == null) {
+                call.respond(HttpStatusCode.NotFound, "Comment not found")
+                return@delete
+            }
+            newSuspendedTransaction {
+                Comments.deleteWhere { Comments.id eq commentId }
+            }
+            call.respond(HttpStatusCode.NoContent)
         }
 
         get("/users/{id}/thought") {

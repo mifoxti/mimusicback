@@ -42,6 +42,11 @@ data class ThoughtCommentCreateReceive(
 )
 
 @Serializable
+data class ThoughtCommentUpdateReceive(
+    val bodyText: String,
+)
+
+@Serializable
 data class ThoughtCreateReceive(
     val bodyText: String,
     val attachmentType: Int? = null,
