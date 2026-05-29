@@ -16,6 +16,29 @@ data class ThoughtFeedItemRemote(
     val attachmentTrackArtist: String?,
     val attachmentPlaylistTitle: String?,
     val isFriend: Boolean = false,
+    val likesCount: Int = 0,
+    val likedByMe: Boolean = false,
+    val commentsCount: Int = 0,
+)
+
+@Serializable
+data class ThoughtLikeRemote(
+    val status: Boolean,
+    val likesCount: Int,
+)
+
+@Serializable
+data class ThoughtCommentRemote(
+    val id: Long,
+    val authorUserId: Int,
+    val authorNickname: String,
+    val bodyText: String?,
+    val createdAt: String?,
+)
+
+@Serializable
+data class ThoughtCommentCreateReceive(
+    val bodyText: String,
 )
 
 @Serializable

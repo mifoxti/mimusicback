@@ -1,7 +1,9 @@
 package com.example.features.thoughts
 
+import com.example.database.Comments
 import com.example.database.Friendships
 import com.example.database.Playlists
+import com.example.database.ThoughtLikes
 import com.example.database.Thoughts
 import com.example.database.Tracks
 import com.example.database.Users
@@ -16,6 +18,8 @@ import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
+import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
@@ -42,12 +46,64 @@ private suspend fun nicknameByIds(ids: Collection<Long>): Map<Long, String> {
     }
 }
 
+private data class ThoughtEngagement(
+    val likesCount: Int,
+    val likedByMe: Boolean,
+    val commentsCount: Int,
+)
+
+private suspend fun engagementForThoughts(
+    thoughtIds: List<Long>,
+    viewerId: Long?,
+): Map<Long, ThoughtEngagement> {
+    if (thoughtIds.isEmpty()) return emptyMap()
+    return newSuspendedTransaction {
+        val likeCounts = ThoughtLikes.selectAll()
+            .where { ThoughtLikes.thoughtId inList thoughtIds }
+            .groupBy { it[ThoughtLikes.thoughtId] }
+            .mapValues { it.value.size }
+        val likedByViewer = if (viewerId == null) {
+            emptySet()
+        } else {
+            ThoughtLikes.selectAll()
+                .where {
+                    (ThoughtLikes.thoughtId inList thoughtIds) and (ThoughtLikes.userId eq viewerId)
+                }
+                .map { it[ThoughtLikes.thoughtId] }
+                .toSet()
+        }
+        val commentCounts = Comments.selectAll()
+            .where { Comments.thoughtId inList thoughtIds }
+            .groupBy { it[Comments.thoughtId] }
+            .mapValues { it.value.size }
+        thoughtIds.associateWith { tid ->
+            ThoughtEngagement(
+                likesCount = likeCounts[tid] ?: 0,
+                likedByMe = likedByViewer.contains(tid),
+                commentsCount = commentCounts[tid] ?: 0,
+            )
+        }
+    }
+}
+
+/** Лайк/комментарий: мысль существует и автор не служебный (как в [GET /users/{id}/thoughts]). */
+private suspend fun thoughtOpenForInteraction(thoughtId: Long): Boolean {
+    val row = newSuspendedTransaction {
+        Thoughts.selectAll().where { Thoughts.id eq thoughtId }.singleOrNull()
+    } ?: return false
+    val authorId = row[Thoughts.authorUserId]
+    val nick = nicknameByIds(listOf(authorId))[authorId].orEmpty()
+    return !nick.startsWith("__")
+}
+
 private suspend fun mapThoughtRows(
     rows: List<ResultRow>,
     viewerId: Long?,
     friendSet: Set<Long>,
 ): List<ThoughtFeedItemRemote> {
     if (rows.isEmpty()) return emptyList()
+    val thoughtIds = rows.map { it[Thoughts.id] }
+    val engagement = engagementForThoughts(thoughtIds, viewerId)
     val authorIds = rows.map { it[Thoughts.authorUserId] }.distinct()
     val nickByUser = nicknameByIds(authorIds)
     val trackIds = rows.mapNotNull { it[Thoughts.attachmentTrackId] }.distinct()
@@ -76,6 +132,7 @@ private suspend fun mapThoughtRows(
         val tid = tr[Thoughts.attachmentTrackId]
         val pid = tr[Thoughts.attachmentPlaylistId]
         val isFriend = viewerId != null && (aid == viewerId || friendSet.contains(aid))
+        val eng = engagement[tr[Thoughts.id]] ?: ThoughtEngagement(0, false, 0)
         ThoughtFeedItemRemote(
             id = tr[Thoughts.id],
             authorUserId = aid.toInt(),
@@ -89,6 +146,9 @@ private suspend fun mapThoughtRows(
             attachmentTrackArtist = tid?.let { trackMetaById[it]?.second },
             attachmentPlaylistTitle = pid?.let { playlistTitleById[it] },
             isFriend = isFriend,
+            likesCount = eng.likesCount,
+            likedByMe = eng.likedByMe,
+            commentsCount = eng.commentsCount,
         )
     }
 }
@@ -123,11 +183,18 @@ fun Application.configureThoughtsRouting() {
             }
             val authorIds = rows.map { it[Thoughts.authorUserId] }.distinct()
             val nickMap = nicknameByIds(authorIds)
-            val visible = rows.filter { row ->
+            var visible = rows.filter { row ->
                 val nick = nickMap[row[Thoughts.authorUserId]].orEmpty()
                 !nick.startsWith("__")
-            }.take(limit)
-            call.respond(mapThoughtRows(visible, uid, friendSet))
+            }
+            if (scope == "popular") {
+                val engagement = engagementForThoughts(visible.map { it[Thoughts.id] }, uid)
+                visible = visible.sortedWith(
+                    compareByDescending<ResultRow> { engagement[it[Thoughts.id]]?.likesCount ?: 0 }
+                        .thenByDescending { it[Thoughts.id] },
+                )
+            }
+            call.respond(mapThoughtRows(visible.take(limit), uid, friendSet))
         }
 
         post("/thoughts") {
@@ -282,6 +349,125 @@ fun Application.configureThoughtsRouting() {
             } catch (_: Exception) {
                 call.respond(HttpStatusCode.InternalServerError, "Error updating thought")
             }
+        }
+
+        post("/thoughts/{thoughtId}/like") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@post
+            }
+            val thoughtId = call.parameters["thoughtId"]?.toLongOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Invalid thought id")
+                return@post
+            }
+            if (!thoughtOpenForInteraction(thoughtId)) {
+                call.respond(HttpStatusCode.NotFound, "Thought not found")
+                return@post
+            }
+            val liked = newSuspendedTransaction {
+                val exists = ThoughtLikes.selectAll().where {
+                    (ThoughtLikes.thoughtId eq thoughtId) and (ThoughtLikes.userId eq uid)
+                }.any()
+                if (exists) {
+                    ThoughtLikes.deleteWhere {
+                        (ThoughtLikes.thoughtId eq thoughtId) and (ThoughtLikes.userId eq uid)
+                    }
+                    false
+                } else {
+                    ThoughtLikes.insert {
+                        it[ThoughtLikes.thoughtId] = thoughtId
+                        it[ThoughtLikes.userId] = uid
+                    }
+                    true
+                }
+            }
+            val likesCount = newSuspendedTransaction {
+                ThoughtLikes.selectAll().where { ThoughtLikes.thoughtId eq thoughtId }.count().toInt()
+            }
+            call.respond(ThoughtLikeRemote(status = liked, likesCount = likesCount))
+        }
+
+        get("/thoughts/{thoughtId}/comments") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@get
+            }
+            val thoughtId = call.parameters["thoughtId"]?.toLongOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Invalid thought id")
+                return@get
+            }
+            if (!thoughtOpenForInteraction(thoughtId)) {
+                call.respond(HttpStatusCode.NotFound, "Thought not found")
+                return@get
+            }
+            val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 200) ?: 100
+            val rows = newSuspendedTransaction {
+                Comments.selectAll()
+                    .where { Comments.thoughtId eq thoughtId }
+                    .orderBy(Comments.id, SortOrder.ASC)
+                    .limit(limit)
+                    .toList()
+            }
+            val authorIds = rows.map { it[Comments.authorUserId] }.distinct()
+            val nickByUser = nicknameByIds(authorIds)
+            call.respond(
+                rows.map { cr ->
+                    ThoughtCommentRemote(
+                        id = cr[Comments.id],
+                        authorUserId = cr[Comments.authorUserId].toInt(),
+                        authorNickname = nickByUser[cr[Comments.authorUserId]].orEmpty(),
+                        bodyText = cr[Comments.bodyText],
+                        createdAt = cr[Comments.createdAt]?.toString(),
+                    )
+                },
+            )
+        }
+
+        post("/thoughts/{thoughtId}/comments") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@post
+            }
+            val thoughtId = call.parameters["thoughtId"]?.toLongOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Invalid thought id")
+                return@post
+            }
+            if (!thoughtOpenForInteraction(thoughtId)) {
+                call.respond(HttpStatusCode.NotFound, "Thought not found")
+                return@post
+            }
+            val body = try {
+                call.receive<ThoughtCommentCreateReceive>()
+            } catch (_: Exception) {
+                call.respond(HttpStatusCode.BadRequest, "Invalid JSON body")
+                return@post
+            }
+            val text = body.bodyText.trim()
+            if (text.isEmpty()) {
+                call.respond(HttpStatusCode.BadRequest, "bodyText is required")
+                return@post
+            }
+            val now = OffsetDateTime.now()
+            val newId = newSuspendedTransaction {
+                Comments.insert {
+                    it[Comments.thoughtId] = thoughtId
+                    it[Comments.authorUserId] = uid
+                    it[Comments.bodyText] = text
+                    it[Comments.createdAt] = now
+                    it[Comments.updatedAt] = now
+                } get Comments.id
+            }
+            val nick = nicknameByIds(listOf(uid))[uid].orEmpty()
+            call.respond(
+                HttpStatusCode.Created,
+                ThoughtCommentRemote(
+                    id = newId,
+                    authorUserId = uid.toInt(),
+                    authorNickname = nick,
+                    bodyText = text,
+                    createdAt = now.toString(),
+                ),
+            )
         }
 
         get("/users/{id}/thought") {
