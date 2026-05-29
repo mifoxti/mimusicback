@@ -41,3 +41,10 @@ data class MeNowPlayingPutReceive(
     /** Если null — очистить «сейчас слушает». */
     val trackId: Int? = null,
 )
+
+@Serializable
+data class MeStatsResponseRemote(
+    val tracksCount: Int,
+    val playlistsCount: Int,
+    val friendsCount: Int,
+)

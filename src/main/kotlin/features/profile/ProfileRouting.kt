@@ -2,13 +2,19 @@ package com.example.features.profile
 
 import com.example.config.fileStorageRoot
 import com.example.database.InviteKeys
+import com.example.database.Friendships
+import com.example.database.Playlists
 import com.example.database.Tracks
 import com.example.database.UserNowPlaying
 import com.example.database.Users
+import com.example.features.tracks.TrackRemote
+import com.example.services.TrackGenreService
 import com.example.utils.DefaultIdentityAvatar
+import com.example.utils.coverBase64
 import com.example.utils.currentUserId
 import com.example.utils.isValidEmail
 import com.example.utils.normalizeInviteCode
+import com.example.utils.primaryArtist
 import com.example.utils.sha256Hex
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -18,6 +24,8 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.or
+import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
@@ -65,6 +73,64 @@ fun Application.configureProfileRouting() {
                     bio = me[Users.bio],
                     avatarStorageKey = me[Users.avatarStorageKey],
                 ),
+            )
+        }
+
+        get("/me/stats") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@get
+            }
+            val stats = newSuspendedTransaction {
+                val tracksCount = Tracks.selectAll()
+                    .where { Tracks.uploaderUserId eq uid }
+                    .count()
+                    .toInt()
+                val playlistsCount = Playlists.selectAll()
+                    .where { Playlists.userId eq uid }
+                    .count()
+                    .toInt()
+                val friendsCount = Friendships.selectAll()
+                    .where {
+                        (Friendships.userLow eq uid) or (Friendships.userHigh eq uid)
+                    }
+                    .count()
+                    .toInt()
+                MeStatsResponseRemote(
+                    tracksCount = tracksCount,
+                    playlistsCount = playlistsCount,
+                    friendsCount = friendsCount,
+                )
+            }
+            call.respond(stats)
+        }
+
+        get("/me/tracks") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@get
+            }
+            val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 200) ?: 100
+            val rows = newSuspendedTransaction {
+                Tracks.selectAll()
+                    .where { Tracks.uploaderUserId eq uid }
+                    .orderBy(Tracks.id, SortOrder.DESC)
+                    .limit(limit)
+                    .toList()
+            }
+            val ids = rows.map { it[Tracks.id] }
+            val genreMap = TrackGenreService.loadGenreSlugsForTracks(ids)
+            call.respond(
+                rows.map { row ->
+                    TrackRemote(
+                        id = row[Tracks.id].toInt(),
+                        title = row[Tracks.title],
+                        artist = row[Tracks.artists].primaryArtist().ifBlank { null },
+                        duration = row[Tracks.durationMs]?.div(1000),
+                        cover = coverBase64(row[Tracks.audioStorageKey], row[Tracks.coverStorageKey]),
+                        genres = genreMap[row[Tracks.id]].orEmpty(),
+                    )
+                },
             )
         }
 
