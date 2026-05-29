@@ -386,10 +386,60 @@ fun Application.configureThoughtsRouting() {
                 call.respond(HttpStatusCode.BadRequest, "bodyText is required")
                 return@put
             }
+            var attachType: Int? = body.attachmentType
+            var trackId: Long? = body.attachmentTrackId
+            var playlistId: Long? = body.attachmentPlaylistId
+            when (attachType) {
+                null, ATTACH_NONE -> {
+                    attachType = null
+                    trackId = null
+                    playlistId = null
+                }
+                ATTACH_TRACK -> {
+                    playlistId = null
+                    val tid = trackId ?: run {
+                        call.respond(HttpStatusCode.BadRequest, "attachmentTrackId required")
+                        return@put
+                    }
+                    val exists = newSuspendedTransaction {
+                        Tracks.selectAll().where { Tracks.id eq tid }.any()
+                    }
+                    if (!exists) {
+                        call.respond(HttpStatusCode.BadRequest, "Track not found")
+                        return@put
+                    }
+                }
+                ATTACH_PLAYLIST -> {
+                    trackId = null
+                    val pid = playlistId ?: run {
+                        call.respond(HttpStatusCode.BadRequest, "attachmentPlaylistId required")
+                        return@put
+                    }
+                    val row = newSuspendedTransaction {
+                        Playlists.selectAll().where { Playlists.id eq pid }.singleOrNull()
+                    } ?: run {
+                        call.respond(HttpStatusCode.BadRequest, "Playlist not found")
+                        return@put
+                    }
+                    val owner = row[Playlists.userId]
+                    val isPublic = row[Playlists.isPublic] == true
+                    if (owner != uid && !isPublic) {
+                        call.respond(HttpStatusCode.Forbidden, "Cannot attach private foreign playlist")
+                        return@put
+                    }
+                }
+                else -> {
+                    call.respond(HttpStatusCode.BadRequest, "Invalid attachmentType")
+                    return@put
+                }
+            }
             val now = OffsetDateTime.now()
             newSuspendedTransaction {
                 Thoughts.update({ Thoughts.id eq thoughtId }) {
                     it[Thoughts.bodyText] = text
+                    it[Thoughts.attachmentType] = attachType
+                    it[Thoughts.attachmentTrackId] = trackId
+                    it[Thoughts.attachmentPlaylistId] = playlistId
                     it[Thoughts.updatedAt] = now
                 }
             }

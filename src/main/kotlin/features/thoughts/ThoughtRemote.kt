@@ -52,4 +52,7 @@ data class ThoughtCreateReceive(
 @Serializable
 data class ThoughtUpdateReceive(
     val bodyText: String,
+    val attachmentType: Int? = null,
+    val attachmentTrackId: Long? = null,
+    val attachmentPlaylistId: Long? = null,
 )

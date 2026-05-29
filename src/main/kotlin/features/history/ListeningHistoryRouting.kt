@@ -12,7 +12,6 @@ import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.and
-import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
@@ -83,17 +82,6 @@ fun Application.configureListeningHistoryRouting() {
                 if (items.size >= limit) break
             }
             call.respond(items)
-        }
-
-        delete("/me/listening-history") {
-            val uid = call.currentUserId()?.toLong() ?: run {
-                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
-                return@delete
-            }
-            newSuspendedTransaction {
-                ListenEvents.deleteWhere { ListenEvents.userId eq uid }
-            }
-            call.respond(HttpStatusCode.NoContent)
         }
     }
 }
