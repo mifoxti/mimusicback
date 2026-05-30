@@ -86,5 +86,7 @@ Current java on PATH:
 
 $env:JAVA_HOME = $jdk
 $env:PATH = "$(Join-Path $jdk 'bin');$env:PATH"
-Write-Host "Using JAVA_HOME=$jdk"
+# Закрытая бета (переопредели в `.env` или в системе при необходимости).
+if (-not $env:REQUIRE_INVITE_KEY) { $env:REQUIRE_INVITE_KEY = 'true' }
+Write-Host "Using JAVA_HOME=$jdk (REQUIRE_INVITE_KEY=$env:REQUIRE_INVITE_KEY)"
 & "$PSScriptRoot\gradlew.bat" @args

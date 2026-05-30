@@ -11,6 +11,7 @@ import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.deleteWhere
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 import org.jetbrains.exposed.sql.update
@@ -120,6 +121,38 @@ fun Application.configureNotificationRouting() {
                 }) {
                     it[Notifications.readAt] = OffsetDateTime.now()
                 }
+            }
+            call.respond(HttpStatusCode.NoContent)
+        }
+
+        delete("/notifications/{id}") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@delete
+            }
+            val nid = call.parameters["id"]?.toLongOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Invalid id")
+                return@delete
+            }
+            val deleted = newSuspendedTransaction {
+                Notifications.deleteWhere {
+                    (Notifications.id eq nid) and (Notifications.recipientUserId eq uid)
+                }
+            }
+            if (deleted == 0) {
+                call.respond(HttpStatusCode.NotFound)
+                return@delete
+            }
+            call.respond(HttpStatusCode.NoContent)
+        }
+
+        delete("/notifications/all") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@delete
+            }
+            newSuspendedTransaction {
+                Notifications.deleteWhere { Notifications.recipientUserId eq uid }
             }
             call.respond(HttpStatusCode.NoContent)
         }

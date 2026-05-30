@@ -7,8 +7,12 @@ import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
 
-fun requireInviteKeyFromEnv(): Boolean =
-    getenv("REQUIRE_INVITE_KEY")?.equals("true", ignoreCase = true) == true
+/** По умолчанию `true` (закрытая бета). Явно `false` в env — только для локальной отладки. */
+fun requireInviteKeyFromEnv(): Boolean {
+    val raw = getenv("REQUIRE_INVITE_KEY")?.trim()?.lowercase() ?: return true
+    if (raw.isEmpty()) return true
+    return raw == "true" || raw == "1" || raw == "yes"
+}
 
 /** Статические коды беты из env `BETA_INVITE_CODES` (через запятую); если env пуст — как на клиенте по умолчанию. */
 fun betaInviteStaticCodes(): Set<String> {
