@@ -11,7 +11,7 @@ import com.example.features.friends.NowPlayingRemote
 import com.example.features.playlists.PlaylistListItemRemote
 import com.example.features.tracks.TrackRemote
 import com.example.services.TrackGenreService
-import com.example.utils.coverBase64
+import com.example.utils.coverBase64ForApiList
 import com.example.utils.primaryArtist
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -159,7 +159,7 @@ fun Application.configureUserProfileRouting() {
                     title = it[Tracks.title],
                     artist = it[Tracks.artists].primaryArtist().ifBlank { null },
                     duration = it[Tracks.durationMs]?.div(1000),
-                    cover = coverBase64(it[Tracks.audioStorageKey], it[Tracks.coverStorageKey]),
+                    cover = coverBase64ForApiList(it[Tracks.audioStorageKey], it[Tracks.coverStorageKey]),
                     genres = genreMap[it[Tracks.id]].orEmpty(),
                 )
             }

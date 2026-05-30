@@ -36,6 +36,55 @@ fun getenv(name: String): String? =
     System.getenv(name)?.takeIf { it.isNotBlank() }
         ?: dotEnv[name]?.takeIf { it.isNotBlank() }
 
+private fun isWindowsOs(): Boolean =
+    System.getProperty("os.name").orEmpty().lowercase().contains("win")
+
+/**
+ * Путь к `ffmpeg` / `ffprobe`: сначала `FFMPEG_PATH` / `FFPROBE_PATH`, иначе каталог `FFMPEG_BIN_DIR`,
+ * иначе имя из PATH (`ffmpeg` / `ffprobe`).
+ */
+fun ffmpegExecutable(): String = resolveExternalTool(
+    explicitPathEnv = "FFMPEG_PATH",
+    binDirEnv = "FFMPEG_BIN_DIR",
+    defaultName = "ffmpeg",
+)
+
+fun ffprobeExecutable(): String = resolveExternalTool(
+    explicitPathEnv = "FFPROBE_PATH",
+    binDirEnv = "FFMPEG_BIN_DIR",
+    defaultName = "ffprobe",
+)
+
+/** Каталог с ffmpeg.exe/ffprobe.exe после `winget install Gyan.FFmpeg` (JVM часто не видит обновлённый PATH). */
+private fun windowsWingetFfmpegBinDir(): String? {
+    if (!isWindowsOs()) return null
+    val local = System.getenv("LOCALAPPDATA")?.takeIf { it.isNotBlank() } ?: return null
+    val links = File(local, "Microsoft/WinGet/Links")
+    if (!links.isDirectory) return null
+    val ext = ".exe"
+    val ffmpeg = File(links, "ffmpeg$ext")
+    val ffprobe = File(links, "ffprobe$ext")
+    return if (ffmpeg.isFile && ffprobe.isFile) links.absolutePath else null
+}
+
+private fun resolveExternalTool(
+    explicitPathEnv: String,
+    binDirEnv: String,
+    defaultName: String,
+): String {
+    getenv(explicitPathEnv)?.let { return File(it).absolutePath }
+    val ext = if (isWindowsOs()) ".exe" else ""
+    val binDirs = listOfNotNull(
+        getenv(binDirEnv),
+        windowsWingetFfmpegBinDir(),
+    )
+    for (dir in binDirs) {
+        val candidate = File(dir, defaultName + ext)
+        if (candidate.isFile) return candidate.absolutePath
+    }
+    return defaultName
+}
+
 /** Корень аудио: env `MUSIC_STORAGE_DIR` или относительный `music_storage`. */
 fun musicStorageDirectory(): File =
     File(getenv("MUSIC_STORAGE_DIR") ?: "music_storage").also {

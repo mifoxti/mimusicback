@@ -2,7 +2,7 @@ package com.example.features.loved
 
 import com.example.database.TrackLikes
 import com.example.database.Tracks
-import com.example.utils.coverBase64
+import com.example.utils.coverBase64ForApiList
 import com.example.utils.primaryArtist
 import io.ktor.server.application.*
 import io.ktor.server.plugins.*
@@ -26,7 +26,7 @@ fun Application.configureLovedTracksRouting() {
                         id = it[Tracks.id].toInt(),
                         title = it[Tracks.title],
                         artist = it[Tracks.artists].primaryArtist().ifBlank { null },
-                        coverArt = coverBase64(it[Tracks.audioStorageKey], it[Tracks.coverStorageKey]),
+                        coverArt = coverBase64ForApiList(it[Tracks.audioStorageKey], it[Tracks.coverStorageKey]),
                     )
                 }
             }

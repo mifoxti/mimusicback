@@ -9,7 +9,7 @@ import com.example.database.TrackLikes
 import com.example.database.Tracks
 import com.example.services.TrackGenreService
 import com.example.utils.audioFileForTrack
-import com.example.utils.coverBase64
+import com.example.utils.coverBase64ForApiList
 import com.example.utils.currentUserId
 import com.example.utils.deleteTrackMediaFiles
 import com.example.utils.primaryArtist
@@ -67,7 +67,7 @@ fun Application.configureTrackRouting() {
                     title = it[Tracks.title],
                     artist = it[Tracks.artists].primaryArtist().ifBlank { null },
                     duration = it[Tracks.durationMs]?.div(1000),
-                    cover = coverBase64(it[Tracks.audioStorageKey], it[Tracks.coverStorageKey]),
+                    cover = coverBase64ForApiList(it[Tracks.audioStorageKey], it[Tracks.coverStorageKey]),
                     genres = genreMap[it[Tracks.id]].orEmpty(),
                 )
             }
@@ -92,7 +92,7 @@ fun Application.configureTrackRouting() {
                     title = row[Tracks.title],
                     artist = row[Tracks.artists].primaryArtist().ifBlank { null },
                     duration = row[Tracks.durationMs]?.div(1000),
-                    cover = coverBase64(row[Tracks.audioStorageKey], row[Tracks.coverStorageKey]),
+                    cover = coverBase64ForApiList(row[Tracks.audioStorageKey], row[Tracks.coverStorageKey]),
                     genres = genres,
                 ),
             )

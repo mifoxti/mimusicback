@@ -10,9 +10,8 @@ import com.example.database.Users
 import com.example.services.AudioTranscodeService
 import com.example.services.TrackGenreService
 import com.example.utils.currentUserId
-import com.example.utils.looksLikeMp3Prefix
+import com.example.utils.extractEmbeddedCoverPngBytes
 import com.example.utils.looksLikeSupportedAudioUpload
-import com.example.utils.persistEmbeddedCoverFromMp3File
 import com.example.utils.persistTrackCoverPng
 import com.example.utils.readAtMostBytesStrict
 import io.ktor.http.*
@@ -171,7 +170,7 @@ fun Application.configureUploadRouting() {
             if (!AudioTranscodeService.ffmpegAvailable()) {
                 call.respond(
                     HttpStatusCode.ServiceUnavailable,
-                    "На сервере не найден ffmpeg/ffprobe в PATH — конвертация в AAC недоступна",
+                    "Не найден ffmpeg/ffprobe (установите в PATH или задайте FFMPEG_BIN_DIR / FFMPEG_PATH в .env) — конвертация в AAC недоступна",
                 )
                 return@post
             }
@@ -232,6 +231,11 @@ fun Application.configureUploadRouting() {
                 return@post
             }
             val probeOut = AudioTranscodeService.probe(dest)
+            val embeddedCoverPng = if (customCoverPng == null) {
+                extractEmbeddedCoverPngBytes(inFile, maxBytes)
+            } else {
+                null
+            }
             inFile.delete()
 
             val title = titleOverride?.trim()?.takeIf { it.isNotEmpty() }
@@ -280,23 +284,14 @@ fun Application.configureUploadRouting() {
                         it[Tracks.updatedAt] = OffsetDateTime.now()
                     }
                 }
-            } else if (looksLikeMp3Prefix(bytes)) {
-                val tmpMp3 = File(work, "${UUID.randomUUID()}_meta.mp3")
-                try {
-                    tmpMp3.writeBytes(bytes)
-                    val embeddedKey = persistEmbeddedCoverFromMp3File(tmpMp3, trackId, maxBytes)
-                    if (embeddedKey != null) {
-                        coverKey = embeddedKey
-                        embeddedApplied = true
-                        newSuspendedTransaction {
-                            Tracks.update({ Tracks.id eq trackId }) {
-                                it[Tracks.coverStorageKey] = embeddedKey
-                                it[Tracks.updatedAt] = OffsetDateTime.now()
-                            }
-                        }
+            } else if (embeddedCoverPng != null) {
+                coverKey = persistTrackCoverPng(trackId, embeddedCoverPng)
+                embeddedApplied = true
+                newSuspendedTransaction {
+                    Tracks.update({ Tracks.id eq trackId }) {
+                        it[Tracks.coverStorageKey] = coverKey
+                        it[Tracks.updatedAt] = OffsetDateTime.now()
                     }
-                } finally {
-                    tmpMp3.delete()
                 }
             }
 

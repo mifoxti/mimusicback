@@ -48,3 +48,7 @@ If the server starts successfully, you'll see the following output:
 - **Run (Windows):** `.\run-dev.ps1 run` or set `JAVA_HOME` to JDK 11+ and run `.\gradlew.bat run`. Health check: `GET http://127.0.0.1:8080/`.
 - **Invite / auth:** `REQUIRE_INVITE_KEY`, `BETA_INVITE_CODES` in env; dev seed invite **`TESTK-EYDEV-BUILD`** is inserted at startup (see `DatabaseBootstrap.kt`). System users `__scanner_uploader__` and `__invite_key_holder__` are expected rows in `users`.
 - **Product docs** (roadmap, Android USB + Postgres, API alignment) live in the parent folder **`md/`** when you clone the full `MiMusic` workspace layout.
+- **Studio upload (ffmpeg):** track upload transcodes to AAC. Install [FFmpeg](https://ffmpeg.org/) and ensure `ffmpeg` / `ffprobe` are on `PATH`, or set in `.env`:
+  - `FFMPEG_BIN_DIR=C:\path\to\ffmpeg\bin` (Windows: folder with `ffmpeg.exe` and `ffprobe.exe`)
+  - `FFMPEG_PATH` / `FFPROBE_PATH` for explicit executables  
+  Quick install on Windows: `winget install Gyan.FFmpeg`, then restart the terminal and `.\gradlew.bat run`.

@@ -2,7 +2,7 @@ package com.example.features.recommendations
 
 import com.example.database.RecommendationEvents
 import com.example.database.Tracks
-import com.example.utils.coverBase64
+import com.example.utils.coverBase64ForApiList
 import com.example.utils.currentUserId
 import com.example.utils.primaryArtist
 import com.example.services.RecommendationScoreService
@@ -70,7 +70,7 @@ fun Application.configureRecommendationRouting() {
                     title = row[Tracks.title],
                     artist = row[Tracks.artists].primaryArtist().ifBlank { null },
                     duration = row[Tracks.durationMs]?.div(1000),
-                    cover = coverBase64(row[Tracks.audioStorageKey], row[Tracks.coverStorageKey]),
+                    cover = coverBase64ForApiList(row[Tracks.audioStorageKey], row[Tracks.coverStorageKey]),
                     genres = genreMap[st.trackId].orEmpty(),
                     score = st.score,
                 )

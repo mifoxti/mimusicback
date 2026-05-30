@@ -3,7 +3,7 @@ package com.example.features.search
 import com.example.database.TrackLikes
 import com.example.database.Tracks
 import com.example.database.Users
-import com.example.utils.coverBase64
+import com.example.utils.coverBase64ForApiList
 import com.example.utils.currentUserId
 import com.example.utils.primaryArtist
 import io.ktor.http.*
@@ -102,7 +102,7 @@ fun Application.configureSearchRouting() {
                         title = row[Tracks.title],
                         artist = row[Tracks.artists].primaryArtist().ifBlank { null },
                         duration = row[Tracks.durationMs]?.div(1000),
-                        coverArt = coverBase64(row[Tracks.audioStorageKey], row[Tracks.coverStorageKey]),
+                        coverArt = coverBase64ForApiList(row[Tracks.audioStorageKey], row[Tracks.coverStorageKey]),
                         isLiked = userId != null && likedTrackIds.contains(trackId),
                     )
                 }

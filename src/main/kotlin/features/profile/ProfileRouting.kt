@@ -11,7 +11,7 @@ import com.example.features.tracks.TrackRemote
 import com.example.services.ListenStatsService
 import com.example.services.TrackGenreService
 import com.example.utils.DefaultIdentityAvatar
-import com.example.utils.coverBase64
+import com.example.utils.coverBase64ForApiList
 import com.example.utils.currentUserId
 import com.example.utils.isValidEmail
 import com.example.utils.normalizeInviteCode
@@ -130,7 +130,7 @@ fun Application.configureProfileRouting() {
                         title = row[Tracks.title],
                         artist = row[Tracks.artists].primaryArtist().ifBlank { null },
                         duration = row[Tracks.durationMs]?.div(1000),
-                        cover = coverBase64(row[Tracks.audioStorageKey], row[Tracks.coverStorageKey]),
+                        cover = coverBase64ForApiList(row[Tracks.audioStorageKey], row[Tracks.coverStorageKey]),
                         genres = genreMap[tid].orEmpty(),
                         playCount = playCounts[tid] ?: 0,
                     )

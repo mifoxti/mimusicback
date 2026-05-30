@@ -4,7 +4,7 @@ import com.example.database.Thoughts
 import com.example.database.TrackLikes
 import com.example.database.Tracks
 import com.example.database.Users
-import com.example.utils.coverBase64
+import com.example.utils.coverBase64ForApiList
 import com.example.utils.primaryArtist
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -63,7 +63,7 @@ fun Application.configureArtistRouting() {
                             id = trackId.toInt(),
                             title = trackRow[Tracks.title],
                             artist = trackRow[Tracks.artists].primaryArtist(),
-                            coverArt = coverBase64(
+                            coverArt = coverBase64ForApiList(
                                 trackRow[Tracks.audioStorageKey],
                                 trackRow[Tracks.coverStorageKey],
                             ),
@@ -73,7 +73,7 @@ fun Application.configureArtistRouting() {
 
                     val heroCoverArt = if (!isRegistered) {
                         matching.firstOrNull()?.let { trackRow ->
-                            coverBase64(
+                            coverBase64ForApiList(
                                 trackRow[Tracks.audioStorageKey],
                                 trackRow[Tracks.coverStorageKey],
                             )

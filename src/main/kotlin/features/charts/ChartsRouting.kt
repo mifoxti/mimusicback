@@ -2,7 +2,7 @@ package com.example.features.charts
 
 import com.example.database.ListenEvents
 import com.example.database.Tracks
-import com.example.utils.coverBase64
+import com.example.utils.coverBase64ForApiList
 import com.example.utils.currentUserId
 import com.example.utils.primaryArtist
 import io.ktor.http.*
@@ -84,7 +84,7 @@ fun Application.configureChartsRouting() {
                     title = row[Tracks.title],
                     artist = row[Tracks.artists].primaryArtist().ifBlank { null },
                     playCount = count,
-                    cover = coverBase64(row[Tracks.audioStorageKey], row[Tracks.coverStorageKey]),
+                    cover = coverBase64ForApiList(row[Tracks.audioStorageKey], row[Tracks.coverStorageKey]),
                     isNew = count > 0 && count <= 2,
                 )
             }.filterNotNull()

@@ -1,5 +1,7 @@
 package com.example.services
 
+import com.example.config.ffmpegExecutable
+import com.example.config.ffprobeExecutable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
@@ -16,22 +18,25 @@ data class AudioProbeResult(
 
 /**
  * Конвертация в AAC в контейнере `.m4a` через внешние `ffmpeg` / `ffprobe`.
- * На машине без ffmpeg загрузка вернёт ошибку на уровне роутинга.
+ * Пути: [ffmpegExecutable] / [ffprobeExecutable] (см. `FFMPEG_PATH`, `FFMPEG_BIN_DIR` в `.env`).
  */
 object AudioTranscodeService {
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun ffmpegAvailable(): Boolean = try {
-        val p = ProcessBuilder("ffmpeg", "-version").start()
+    private fun executableWorks(path: String): Boolean = try {
+        val p = ProcessBuilder(path, "-version").start()
         p.waitFor(5, TimeUnit.SECONDS) && p.exitValue() == 0
     } catch (_: Exception) {
         false
     }
 
+    fun ffmpegAvailable(): Boolean =
+        executableWorks(ffmpegExecutable()) && executableWorks(ffprobeExecutable())
+
     fun probe(file: File): AudioProbeResult {
         val out = runCommand(
             listOf(
-                "ffprobe",
+                ffprobeExecutable(),
                 "-v",
                 "quiet",
                 "-print_format",
@@ -61,7 +66,7 @@ object AudioTranscodeService {
         output.parentFile?.mkdirs()
         val pb = ProcessBuilder(
             listOf(
-                "ffmpeg",
+                ffmpegExecutable(),
                 "-y",
                 "-i",
                 input.absolutePath,
