@@ -1,11 +1,5 @@
-package com.example
+package com.example.colisten
 
-import com.example.colisten.ColistenRoomManager
-import com.example.colisten.ColistenClientMessage
-import com.example.colisten.RoomState
-import com.example.colisten.applyHostStateMessage
-import com.example.colisten.buildRemoteGuestCommand
-import com.example.colisten.stateToJson
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -44,14 +38,17 @@ class ColistenRoomManagerTest {
         assertNotNull(joined)
         assertEquals(listOf(1, 2), ColistenRoomManager.getState(roomId)?.participantIds)
 
-        ColistenRoomManager.setState(roomId, RoomState(
-            roomId = roomId,
-            ownerId = 1,
-            trackId = 5,
-            positionSeconds = 10.0,
-            playing = true,
-            participantIds = listOf(1, 2)
-        ))
+        ColistenRoomManager.setState(
+            roomId,
+            RoomState(
+                roomId = roomId,
+                ownerId = 1,
+                trackId = 5,
+                positionSeconds = 10.0,
+                playing = true,
+                participantIds = listOf(1, 2),
+            ),
+        )
         ColistenRoomManager.broadcast(roomId, stateToJson(ColistenRoomManager.getState(roomId)!!))
         val msg = received.receive()
         assertEquals(true, msg.contains("trackId"))
@@ -252,5 +249,4 @@ class ColistenRoomManagerTest {
 
         ColistenRoomManager.leaveRoom(roomId, 50)
     }
-
 }

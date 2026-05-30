@@ -37,6 +37,12 @@ data class TrackGenresPutReceive(
     val normalizeWeights: Boolean = false,
 )
 
+@Serializable
+data class TrackMetadataUpdateReceive(
+    val title: String? = null,
+    val artist: String? = null,
+)
+
 private sealed class DeleteTrackOutcome {
     data object Missing : DeleteTrackOutcome()
     data object Forbidden : DeleteTrackOutcome()
@@ -136,6 +142,56 @@ fun Application.configureTrackRouting() {
                     deleteTrackMediaFiles(outcome.audioStorageKey, outcome.coverStorageKey)
                     call.respond(HttpStatusCode.NoContent)
                 }
+            }
+        }
+
+        patch("/tracks/{id}") {
+            val uid = call.currentUserId()?.toLong() ?: run {
+                call.respond(HttpStatusCode.Unauthorized, "Missing or invalid token")
+                return@patch
+            }
+            val trackId = call.parameters["id"]?.toLongOrNull() ?: run {
+                call.respond(HttpStatusCode.BadRequest, "Invalid track id")
+                return@patch
+            }
+            val body = try {
+                call.receive<TrackMetadataUpdateReceive>()
+            } catch (_: Exception) {
+                call.respond(HttpStatusCode.BadRequest, "Invalid JSON")
+                return@patch
+            }
+            val title = body.title?.trim()
+            val artist = body.artist?.trim()
+            if (title == null && artist == null) {
+                call.respond(HttpStatusCode.BadRequest, "Укажите title и/или artist")
+                return@patch
+            }
+            val updated = newSuspendedTransaction {
+                val row = Tracks.selectAll().where { Tracks.id eq trackId }.singleOrNull()
+                    ?: return@newSuspendedTransaction false
+                if (row[Tracks.uploaderUserId] != uid) return@newSuspendedTransaction false
+                Tracks.update({ Tracks.id eq trackId }) {
+                    if (title != null && title.isNotEmpty()) {
+                        it[Tracks.title] = title
+                    }
+                    if (artist != null) {
+                        it[Tracks.artists] = if (artist.isEmpty()) emptyList() else listOf(artist)
+                    }
+                }
+                true
+            }
+            when {
+                !updated -> {
+                    val exists = newSuspendedTransaction {
+                        Tracks.selectAll().where { Tracks.id eq trackId }.any()
+                    }
+                    if (!exists) {
+                        call.respond(HttpStatusCode.NotFound, "Трек не найден")
+                    } else {
+                        call.respond(HttpStatusCode.Forbidden, "Можно менять только свой трек")
+                    }
+                }
+                else -> call.respond(HttpStatusCode.OK, mapOf("status" to "ok"))
             }
         }
 

@@ -19,7 +19,10 @@ object RecommendationScoreService {
         val prefs = UserGenrePreferences.selectAll()
             .where { UserGenrePreferences.userId eq userId }
             .associate { it[UserGenrePreferences.genreId] to it[UserGenrePreferences.weight] }
-        val allTracks = Tracks.selectAll().orderBy(Tracks.id, SortOrder.DESC).map { it[Tracks.id] }
+        val allTracks = Tracks.selectAll()
+            .orderBy(Tracks.id, SortOrder.DESC)
+            .filter { it[Tracks.uploaderUserId] != userId }
+            .map { it[Tracks.id] }
         if (prefs.isEmpty()) {
             return@newSuspendedTransaction allTracks.take(limit).map { ScoredTrackId(it, 0.0) }
         }

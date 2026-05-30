@@ -31,6 +31,8 @@ import com.example.features.genres.configureGenreRouting
 import com.example.features.preferences.configureUserGenrePreferencesRouting
 import com.example.features.recommendations.configureRecommendationRouting
 import com.example.features.albums.configureAlbumRouting
+import com.example.features.charts.configureChartsRouting
+import com.example.features.studio.configureStudioStatsRouting
 import com.example.features.playlists.configurePlaylistRouting
 import com.example.services.MusicScanner
 import io.ktor.server.application.*
@@ -79,6 +81,8 @@ fun Application.module() {
     configureUserProfileRouting()
     configureThoughtsRouting()
     configureListeningHistoryRouting()
+    configureChartsRouting()
+    configureStudioStatsRouting()
     configureLovedTracksRouting()
     configureArtistRouting()
     configureFriendRouting()

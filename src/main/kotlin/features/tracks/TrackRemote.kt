@@ -10,4 +10,5 @@ data class TrackRemote(
     val duration: Int?,
     val cover: String?,
     val genres: List<String> = emptyList(),
+    val playCount: Int? = null,
 )

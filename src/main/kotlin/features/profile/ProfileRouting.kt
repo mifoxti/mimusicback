@@ -8,6 +8,7 @@ import com.example.database.Tracks
 import com.example.database.UserNowPlaying
 import com.example.database.Users
 import com.example.features.tracks.TrackRemote
+import com.example.services.ListenStatsService
 import com.example.services.TrackGenreService
 import com.example.utils.DefaultIdentityAvatar
 import com.example.utils.coverBase64
@@ -120,15 +121,18 @@ fun Application.configureProfileRouting() {
             }
             val ids = rows.map { it[Tracks.id] }
             val genreMap = TrackGenreService.loadGenreSlugsForTracks(ids)
+            val playCounts = ListenStatsService.playCountsByTrackId(ids)
             call.respond(
                 rows.map { row ->
+                    val tid = row[Tracks.id]
                     TrackRemote(
-                        id = row[Tracks.id].toInt(),
+                        id = tid.toInt(),
                         title = row[Tracks.title],
                         artist = row[Tracks.artists].primaryArtist().ifBlank { null },
                         duration = row[Tracks.durationMs]?.div(1000),
                         cover = coverBase64(row[Tracks.audioStorageKey], row[Tracks.coverStorageKey]),
-                        genres = genreMap[row[Tracks.id]].orEmpty(),
+                        genres = genreMap[tid].orEmpty(),
+                        playCount = playCounts[tid] ?: 0,
                     )
                 },
             )
