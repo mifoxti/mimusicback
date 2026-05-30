@@ -24,6 +24,7 @@ data class UserPublicProfileRemote(
     val nickname: String,
     val bio: String?,
     val avatarStorageKey: String?,
+    val online: Boolean = false,
     val nowPlaying: NowPlayingRemote?,
     val publicPlaylists: List<PlaylistListItemRemote>,
     val uploadedTracks: List<TrackRemote>,

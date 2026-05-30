@@ -13,6 +13,11 @@ data class ArtistSong(
 
 @Serializable
 data class ArtistResponse(
-    val thoughts: String,
-    val songs: List<ArtistSong>
+    val thoughts: String = "",
+    val songs: List<ArtistSong> = emptyList(),
+    /** Совпадение по nickname с зарегистрированным пользователем. */
+    val registeredUserId: Int? = null,
+    val isRegistered: Boolean = false,
+    /** Обложка последнего трека автора (для незарегистрированных). */
+    val heroCoverArt: String? = null,
 )

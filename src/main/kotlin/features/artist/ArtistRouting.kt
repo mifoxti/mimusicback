@@ -31,29 +31,25 @@ fun Application.configureArtistRouting() {
 
             try {
                 val result = newSuspendedTransaction {
+                    val normalized = artistName.trim()
                     val artistRow = Users.selectAll()
-                        .where { Users.nickname.lowerCase() eq artistName.lowercase(Locale.getDefault()) }
+                        .where { Users.nickname.lowerCase() eq normalized.lowercase(Locale.getDefault()) }
                         .singleOrNull()
-
-                    val thoughtsText = if (artistRow != null) {
-                        Thoughts.selectAll()
-                            .where { Thoughts.authorUserId eq artistRow[Users.id] }
-                            .orderBy(Thoughts.id, SortOrder.DESC)
-                            .limit(1)
-                            .map { it[Thoughts.bodyText] }
-                            .firstOrNull()
-                            ?: artistRow[Users.bio]
-                    } else null
-
-                    val thoughts = thoughtsText
-                        ?: "Этот пользователь пока не поведал миру о своих мыслях"
+                    val isRegistered = artistRow != null &&
+                        !artistRow[Users.nickname].startsWith("__")
+                    val registeredUserId = if (isRegistered) artistRow!![Users.id].toInt() else null
 
                     val allTracks = Tracks.selectAll().toList()
-                    val songs = allTracks.filter { trackRow ->
-                        trackRow[Tracks.artists].orEmpty().any { it.equals(artistName, ignoreCase = true) }
-                    }.map { trackRow ->
-                        val trackId = trackRow[Tracks.id]
+                    val matching = allTracks
+                        .filter { trackRow ->
+                            trackRow[Tracks.artists].orEmpty().any {
+                                it.equals(normalized, ignoreCase = true)
+                            }
+                        }
+                        .sortedByDescending { it[Tracks.id] }
 
+                    val songs = matching.map { trackRow ->
+                        val trackId = trackRow[Tracks.id]
                         val isLiked = if (requestingUserId != null) {
                             TrackLikes.selectAll()
                                 .where {
@@ -63,7 +59,6 @@ fun Application.configureArtistRouting() {
                         } else {
                             false
                         }
-
                         ArtistSong(
                             id = trackId.toInt(),
                             title = trackRow[Tracks.title],
@@ -76,7 +71,38 @@ fun Application.configureArtistRouting() {
                         )
                     }
 
-                    ArtistResponse(thoughts = thoughts, songs = songs)
+                    val heroCoverArt = if (!isRegistered) {
+                        matching.firstOrNull()?.let { trackRow ->
+                            coverBase64(
+                                trackRow[Tracks.audioStorageKey],
+                                trackRow[Tracks.coverStorageKey],
+                            )
+                        }
+                    } else {
+                        null
+                    }
+
+                    val thoughts = if (isRegistered && artistRow != null) {
+                        Thoughts.selectAll()
+                            .where { Thoughts.authorUserId eq artistRow[Users.id] }
+                            .orderBy(Thoughts.id, SortOrder.DESC)
+                            .limit(1)
+                            .map { it[Thoughts.bodyText] }
+                            .firstOrNull()
+                            ?.takeIf { it.isNotBlank() }
+                            ?: artistRow[Users.bio]
+                            ?: ""
+                    } else {
+                        ""
+                    }
+
+                    ArtistResponse(
+                        thoughts = thoughts,
+                        songs = songs,
+                        registeredUserId = registeredUserId,
+                        isRegistered = isRegistered,
+                        heroCoverArt = heroCoverArt,
+                    )
                 }
 
                 call.respond(HttpStatusCode.OK, result)

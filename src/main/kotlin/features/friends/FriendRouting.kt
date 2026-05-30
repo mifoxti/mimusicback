@@ -346,12 +346,16 @@ fun Application.configureFriendRouting() {
                     .map { it[UserPresence.userId] }
                     .toSet()
                 val freshNowPlayingThreshold = OffsetDateTime.now().minusSeconds(120)
-                val playingByUser = UserNowPlaying.selectAll()
-                    .where {
-                        (UserNowPlaying.userId inList otherIds) and
-                            (UserNowPlaying.updatedAt greaterEq freshNowPlayingThreshold)
-                    }
-                    .associateBy { it[UserNowPlaying.userId] }
+                val playingByUser = if (onlineUserIds.isEmpty()) {
+                    emptyMap()
+                } else {
+                    UserNowPlaying.selectAll()
+                        .where {
+                            (UserNowPlaying.userId inList onlineUserIds.toList()) and
+                                (UserNowPlaying.updatedAt greaterEq freshNowPlayingThreshold)
+                        }
+                        .associateBy { it[UserNowPlaying.userId] }
+                }
                 val trackIds = playingByUser.values.mapNotNull { it[UserNowPlaying.trackId] }.distinct()
                 val trackRows = if (trackIds.isEmpty()) {
                     emptyMap()
@@ -367,7 +371,6 @@ fun Application.configureFriendRouting() {
                 otherIds.map { oid ->
                     val online = onlineUserIds.contains(oid)
                     val np = playingByUser[oid]?.let { prow ->
-                        if (!online) return@let null
                         val tid = prow[UserNowPlaying.trackId] ?: return@let null
                         trackRows[tid]?.let { (title, artist) ->
                             NowPlayingRemote(

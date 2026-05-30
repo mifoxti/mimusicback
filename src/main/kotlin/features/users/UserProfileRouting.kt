@@ -5,6 +5,7 @@ import com.example.database.Playlists
 import com.example.database.Thoughts
 import com.example.database.Tracks
 import com.example.database.UserNowPlaying
+import com.example.database.UserPresence
 import com.example.database.Users
 import com.example.features.friends.NowPlayingRemote
 import com.example.features.playlists.PlaylistListItemRemote
@@ -22,7 +23,9 @@ import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.inList
 import org.jetbrains.exposed.sql.selectAll
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
+import java.time.OffsetDateTime
 
 fun Application.configureUserProfileRouting() {
     routing {
@@ -33,10 +36,10 @@ fun Application.configureUserProfileRouting() {
             }
             val bundle = newSuspendedTransaction {
                 val userRow = Users.selectAll().where { Users.id eq userId }.singleOrNull()
-                    ?: return@newSuspendedTransaction ProfileBundle(null, emptyList(), emptyList(), null, emptyList())
+                    ?: return@newSuspendedTransaction ProfileBundle(null, emptyList(), emptyList(), false, null, emptyList())
                 val nickname = userRow[Users.nickname]
                 if (nickname.startsWith("__")) {
-                    return@newSuspendedTransaction ProfileBundle(null, emptyList(), emptyList(), null, emptyList())
+                    return@newSuspendedTransaction ProfileBundle(null, emptyList(), emptyList(), false, null, emptyList())
                 }
 
                 val playlistRows = Playlists.selectAll()
@@ -108,7 +111,24 @@ fun Application.configureUserProfileRouting() {
                     .limit(50)
                     .toList()
 
-                val npRow = UserNowPlaying.selectAll().where { UserNowPlaying.userId eq userId }.singleOrNull()
+                val onlineThreshold = OffsetDateTime.now().minusSeconds(20)
+                val isOnline = UserPresence.selectAll()
+                    .where {
+                        (UserPresence.userId eq userId) and
+                            (UserPresence.lastSeenAt greaterEq onlineThreshold)
+                    }
+                    .any()
+                val freshNowPlayingThreshold = OffsetDateTime.now().minusSeconds(120)
+                val npRow = if (isOnline) {
+                    UserNowPlaying.selectAll()
+                        .where {
+                            (UserNowPlaying.userId eq userId) and
+                                (UserNowPlaying.updatedAt greaterEq freshNowPlayingThreshold)
+                        }
+                        .singleOrNull()
+                } else {
+                    null
+                }
                 val nowPlaying = npRow?.get(UserNowPlaying.trackId)?.let { tid ->
                     Tracks.selectAll().where { Tracks.id eq tid }.singleOrNull()?.let { tr ->
                         NowPlayingRemote(
@@ -123,6 +143,7 @@ fun Application.configureUserProfileRouting() {
                     user = userRow,
                     publicPlaylists = publicPlaylists,
                     trackRows = trackRows,
+                    online = isOnline,
                     nowPlaying = nowPlaying,
                     recentThoughts = recentThoughts,
                 )
@@ -148,6 +169,7 @@ fun Application.configureUserProfileRouting() {
                     nickname = userRow[Users.nickname],
                     bio = userRow[Users.bio],
                     avatarStorageKey = userRow[Users.avatarStorageKey],
+                    online = bundle.online,
                     nowPlaying = bundle.nowPlaying,
                     publicPlaylists = bundle.publicPlaylists,
                     uploadedTracks = uploadedTracks,
@@ -162,6 +184,7 @@ private data class ProfileBundle(
     val user: ResultRow?,
     val publicPlaylists: List<PlaylistListItemRemote>,
     val trackRows: List<ResultRow>,
+    val online: Boolean,
     val nowPlaying: NowPlayingRemote?,
     val recentThoughts: List<UserProfileThoughtRemote>,
 )
